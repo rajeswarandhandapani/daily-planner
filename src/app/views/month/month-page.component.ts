@@ -129,7 +129,7 @@ const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numer
               </div>
               <div class="month-pills flex flex-col gap-0.5 w-full">
                 @for (t of c.tasks.slice(0, 2); track t.id) {
-                  <span class="month-pill" [class.line-through]="t.done">
+                  <span class="month-pill" [class.line-through]="t.done" [attr.data-cat]="t.category">
                     {{ t.title }}
                   </span>
                 }
@@ -163,7 +163,8 @@ const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numer
           <div class="flex flex-col gap-2">
             @for (t of selectedTasks(); track t.id) {
               <div
-                class="flex flex-col gap-2 p-2.5 rounded-lg border border-base-300"
+                class="flex flex-col gap-2 p-2.5 rounded-lg cat-tint"
+                [attr.data-cat]="t.category"
                 draggable="true"
                 (dragstart)="onDragStart($event, t)"
                 (dragend)="onDragEnd()"

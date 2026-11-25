@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { ToastService } from '../kit/toast.service';
 import {
   carryForwardPending,
@@ -11,6 +11,7 @@ import {
   overdueTasks,
   parseBackup,
   rolloverTo,
+  tasksForDayView,
   top3CountOnScope,
 } from '../domain/logic';
 import {
@@ -87,8 +88,27 @@ export class PlannerStateService {
   readonly overdue = computed(() => overdueTasks(this.tasks(), this.today()));
   readonly focusMinutesByTask = computed(() => focusByTask(this.days()));
   readonly activeHabits = computed(() => this.settings().habits.filter(h => !h.archived));
+  readonly pendingTodayCount = computed(
+    () => tasksForDayView(this.tasks(), this.today(), this.today()).filter(t => !t.done).length,
+  );
 
   private initialized = false;
+
+  constructor() {
+    effect(() => {
+      const count = this.pendingTodayCount();
+      if (typeof navigator === 'undefined') return;
+      const nav = navigator as Navigator & {
+        setAppBadge?: (contents?: number) => Promise<void>;
+        clearAppBadge?: () => Promise<void>;
+      };
+      if (count > 0) {
+        nav.setAppBadge?.(count)?.catch(() => {});
+      } else {
+        nav.clearAppBadge?.()?.catch(() => {});
+      }
+    });
+  }
 
   async init(): Promise<void> {
     if (this.initialized) return;

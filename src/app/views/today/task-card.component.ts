@@ -22,6 +22,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
       [class.is-top3]="task().top3"
       [class.is-conflict]="conflict()"
       [attr.data-task]="task().id"
+      [attr.data-cat]="task().category"
     >
       <div class="flex items-start gap-2.5">
         <button

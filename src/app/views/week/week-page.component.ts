@@ -106,7 +106,8 @@ const SHORT_DAY = new Intl.DateTimeFormat('en-US', { weekday: 'short' });
           <div class="flex flex-wrap gap-2">
             @for (t of undatedList(); track t.id) {
               <div
-                class="px-2.5 py-1.5 rounded-lg border border-base-300 bg-base-200/60 text-xs flex items-center gap-2"
+                class="px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 cat-tint"
+                [attr.data-cat]="t.category"
                 draggable="true"
                 (dragstart)="onDragStart($event, t)"
                 (dragend)="onDragEnd()"
@@ -166,9 +167,10 @@ const SHORT_DAY = new Intl.DateTimeFormat('en-US', { weekday: 'short' });
           <div class="flex flex-col gap-1.5 flex-1">
             @for (t of col.tasks; track t.id) {
               <div
-                class="p-2 rounded-lg border border-base-300 bg-base-200/60 text-xs flex flex-col gap-1"
+                class="p-2 rounded-lg text-xs flex flex-col gap-1 cat-tint"
                 [class.opacity-60]="t.done"
                 [attr.data-week-task]="t.id"
+                [attr.data-cat]="t.category"
                 draggable="true"
                 (dragstart)="onDragStart($event, t)"
                 (dragend)="onDragEnd()"
