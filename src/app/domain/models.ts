@@ -52,6 +52,8 @@ export interface Subtask {
 
 export interface TaskItem {
   id: string;
+  /** Links a pulled daily plan task back to its parent task in the Unfinished Bucket. */
+  sourceTaskId?: string | null;
   title: string;
   /** ISO date YYYY-MM-DD when scheduled, or null when undated. */
   date: string | null;

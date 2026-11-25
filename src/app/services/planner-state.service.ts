@@ -88,7 +88,7 @@ export class PlannerStateService {
   readonly undatedTasks = computed(() => this.tasks().filter(t => t.date === null));
   readonly bucket = computed(() => bucketTasks(this.tasks()));
   readonly overdue = computed(() => overdueTasks(this.tasks(), this.today()));
-  readonly focusMinutesByTask = computed(() => focusByTask(this.days()));
+  readonly focusMinutesByTask = computed(() => focusByTask(this.days(), this.tasks()));
   readonly activeHabits = computed(() => this.settings().habits.filter(h => !h.archived));
   readonly pendingTodayCount = computed(
     () => tasksForDayView(this.tasks(), this.today()).filter(t => !t.done).length,
@@ -281,6 +281,13 @@ export class PlannerStateService {
     };
     this.tasks.update(list => list.map(t => (t.id === id ? updated : t)));
     await this.store.putTask(updated);
+
+    if (current.date === null && done) {
+      this.toast.show(`Finished “${current.title}” in bucket.`, {
+        label: 'Undo',
+        run: () => void this.toggleDone(id),
+      });
+    }
   }
 
   async toggleTop3(id: string): Promise<void> {
@@ -350,38 +357,77 @@ export class PlannerStateService {
     });
   }
 
-  async pullToDate(id: string, targetDate: string): Promise<void> {
-    const current = this.tasks().find(t => t.id === id);
-    if (!current || current.date === targetDate) return;
-    const prev = { ...current, subtasks: current.subtasks.map(s => ({ ...s })) };
+  async pullManyToDate(bucketIds: string[], targetDate: string): Promise<void> {
+    if (!bucketIds.length) return;
+    const all = this.tasks();
+    const idSet = new Set(bucketIds);
+    const sources = all.filter(t => idSet.has(t.id) && t.date === null && !t.done);
+    if (!sources.length) return;
 
-    let nextTop3 = current.top3;
-    let demoted = false;
-    if (nextTop3 && top3CountOnScope(this.tasks(), targetDate, id) >= MAX_TOP3) {
-      nextTop3 = false;
-      demoted = true;
+    const alreadyInPlan = new Set(
+      all
+        .filter(t => t.date === targetDate && !t.done && t.sourceTaskId)
+        .map(t => t.sourceTaskId as string),
+    );
+    let targetTop3 = top3CountOnScope(all, targetDate);
+    const existingOnDay = this.tasksByDate()[targetDate] ?? [];
+    let maxOrder = existingOnDay.reduce((m, t) => Math.max(m, t.order), -1);
+
+    const created: TaskItem[] = [];
+    for (const src of sources) {
+      if (alreadyInPlan.has(src.id)) continue;
+      alreadyInPlan.add(src.id);
+      let wantTop3 = src.top3;
+      if (wantTop3) {
+        if (targetTop3 < MAX_TOP3) targetTop3 += 1;
+        else wantTop3 = false;
+      }
+      maxOrder += 1;
+      created.push({
+        id: uid('t'),
+        sourceTaskId: src.id,
+        title: src.title,
+        date: targetDate,
+        startTime: src.startTime,
+        durationMin: src.durationMin,
+        priority: src.priority,
+        top3: wantTop3,
+        category: src.category,
+        subtasks: src.subtasks.map(s => ({ id: uid('sub'), title: s.title, done: s.done })),
+        notes: src.notes,
+        done: false,
+        completedAt: null,
+        rolloverCount: 0,
+        order: maxOrder,
+        createdAt: new Date().toISOString(),
+      });
     }
 
-    const updated: TaskItem = {
-      ...current,
-      date: targetDate,
-      top3: nextTop3,
-    };
+    if (created.length === 0) {
+      this.toast.show('Selected task(s) are already in that day’s plan.');
+      return;
+    }
 
-    this.tasks.update(list => list.map(t => (t.id === id ? updated : t)));
-    await this.store.putTask(updated);
+    this.tasks.update(list => [...list, ...created]);
+    await this.store.putTasks(created);
 
+    const createdIds = new Set(created.map(c => c.id));
     const destLabel = targetDate === this.today() ? 'Today' : targetDate;
-    const msg = demoted
-      ? `Pulled “${current.title}” to ${destLabel} (Top 3 cleared — max ${MAX_TOP3}).`
-      : `Pulled “${current.title}” to ${destLabel}.`;
-    this.toast.show(msg, {
+    const label =
+      created.length === 1
+        ? `Pulled “${created[0].title}” to ${destLabel}.`
+        : `Pulled ${created.length} tasks to ${destLabel}.`;
+    this.toast.show(label, {
       label: 'Undo',
       run: () => {
-        this.tasks.update(list => list.map(t => (t.id === id ? prev : t)));
-        void this.store.putTask(prev);
+        this.tasks.update(list => list.filter(t => !createdIds.has(t.id)));
+        for (const id of createdIds) void this.store.deleteTask(id);
       },
     });
+  }
+
+  async pullToDate(id: string, targetDate: string): Promise<void> {
+    await this.pullManyToDate([id], targetDate);
   }
 
   async returnToBucket(id: string): Promise<void> {

@@ -116,7 +116,7 @@ import { TaskCardComponent } from './task-card.component';
     <!-- Quick Add -->
     <dp-quick-add #quickAdd [selectedDate]="state.selectedDate()" />
 
-    <!-- Schedule header & Grouped / Timeline toggle -->
+    <!-- Daily Plan -->
     <div class="flex items-center justify-between gap-2">
       <h2 class="text-base font-bold m-0">Daily plan</h2>
       <div class="seg" role="group" aria-label="Schedule view">
@@ -141,7 +141,7 @@ import { TaskCardComponent } from './task-card.component';
       <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="card-body p-5 text-center text-sm opacity-75">
           @if (state.bucket().length > 0) {
-            No tasks scheduled for {{ pullTargetLabel() }} yet. Tap <b>+ Pull</b> on any item in your Unfinished bucket below, or add a dated task.
+            No tasks scheduled for {{ pullTargetLabel() }} yet. Select tasks in your Unfinished bucket below and pull them into {{ pullTargetLabel() }}.
           } @else {
             No tasks planned for {{ pullTargetLabel() }} yet. Add a task above (leave Date blank for your Unfinished bucket, or set a date).
           }
@@ -200,11 +200,11 @@ import { TaskCardComponent } from './task-card.component';
       }
     }
 
-    <!-- Unfinished Bucket (pull into daily plan) -->
+    <!-- Unfinished Bucket (grouped by category & priority; multi-select pull into Daily plan) -->
     @if (state.bucket().length > 0) {
       <section class="card bg-base-100 border border-base-300 shadow-xs" data-testid="bucket-panel">
-        <div class="card-body p-3 gap-2.5">
-          <div class="flex items-center justify-between gap-2">
+        <div class="card-body p-3 gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <button
               type="button"
               class="flex items-center gap-2 text-left bg-transparent border-0 p-0 cursor-pointer font-bold text-sm"
@@ -214,7 +214,31 @@ import { TaskCardComponent } from './task-card.component';
               <span>{{ isBucketExpanded() ? '▾' : '▸' }} Unfinished bucket</span>
               <span class="badge badge-sm badge-ghost">{{ state.bucket().length }}</span>
             </button>
-            <span class="text-xs opacity-65">Pull tasks into {{ pullTargetLabel() }}</span>
+
+            <div class="flex items-center gap-1.5">
+              @if (isBucketExpanded() && pullableBucketIds().length > 1) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  [attr.aria-label]="allPullableSelected() ? 'Clear bucket selection' : 'Select all bucket tasks'"
+                  (click)="toggleSelectAllBucket()"
+                >
+                  {{ allPullableSelected() ? 'Clear' : 'Select all' }}
+                </button>
+              }
+              @if (selectedBucketCount() > 0) {
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs min-h-8"
+                  data-testid="pull-selected-btn"
+                  (click)="pullSelected()"
+                >
+                  + Pull selected ({{ selectedBucketCount() }})
+                </button>
+              } @else {
+                <span class="text-xs opacity-65">Pull into {{ pullTargetLabel() }}</span>
+              }
+            </div>
           </div>
 
           @if (isBucketExpanded()) {
@@ -242,62 +266,89 @@ import { TaskCardComponent } from './task-card.component';
               </div>
             }
 
-            <div class="flex flex-col gap-2">
-              @for (t of filteredBucket(); track t.id) {
-                <div
-                  class="p-2.5 rounded-lg cat-tint flex items-center justify-between gap-2"
-                  [attr.data-bucket-task]="t.id"
-                  [attr.data-cat]="t.category"
-                >
-                  <div class="flex items-start gap-2 min-w-0 flex-1">
-                    <button
-                      type="button"
-                      class="tick w-7 h-7 text-xs"
-                      aria-pressed="false"
-                      [attr.aria-label]="'Complete ' + t.title"
-                      (click)="state.toggleDone(t.id)"
-                    ></button>
-                    <div class="min-w-0 flex-1">
-                      <div class="text-sm font-semibold leading-snug break-words">{{ t.title }}</div>
-                      <div class="flex flex-wrap items-center gap-1.5 mt-0.5 text-xs opacity-80">
-                        <span>{{ catLabel(t.category) }}</span>
-                        @if (t.top3) {
-                          <span class="badge badge-warning badge-xs">Top 3</span>
-                        }
-                        @if (t.priority === 'high') {
-                          <span class="badge badge-error badge-outline badge-xs">High</span>
-                        }
-                        <span class="badge badge-ghost badge-xs">{{ formatDur(t.durationMin) }}</span>
-                        @if (t.subtasks.length > 0) {
-                          <span>{{ doneSubCount(t) }}/{{ t.subtasks.length }} steps</span>
-                        }
-                        @if (focusedOf(t.id) > 0) {
-                          <span class="badge badge-primary badge-outline badge-xs" data-testid="bucket-focused-badge">
-                            {{ focusedOf(t.id) }}m focused
-                          </span>
-                        }
-                      </div>
-                    </div>
+            <div class="flex flex-col gap-3">
+              @for (group of bucketCategoryGroups(); track group.category.id) {
+                <div class="flex flex-col gap-1.5" [attr.data-bucket-category]="group.category.id">
+                  <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 m-0">
+                      <i class="cat-dot" [style.background]="'var(' + group.category.colorVar + ')'"></i>
+                      <span>{{ group.category.label }}</span>
+                    </h3>
+                    <span class="text-xs opacity-65">{{ group.totalCount }}</span>
                   </div>
 
-                  <div class="flex items-center gap-1 flex-none">
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-xs min-h-8"
-                      [attr.aria-label]="'Pull ' + t.title + ' into plan'"
-                      (click)="state.pullToDate(t.id, state.selectedDate())"
+                  @for (t of group.tasks; track t.id) {
+                    <div
+                      class="p-2.5 rounded-lg cat-tint flex items-center justify-between gap-2"
+                      [attr.data-bucket-task]="t.id"
+                      [attr.data-cat]="t.category"
                     >
-                      + Pull
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs opacity-65 px-1.5"
-                      [attr.aria-label]="'Delete ' + t.title"
-                      (click)="state.deleteTask(t.id)"
-                    >
-                      ×
-                    </button>
-                  </div>
+                      <div class="flex items-start gap-2 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-sm checkbox-primary mt-0.5 flex-none"
+                          [checked]="selectedBucketIds().has(t.id)"
+                          [disabled]="pulledOnSelectedDate().has(t.id)"
+                          [attr.aria-label]="'Select ' + t.title + ' to pull'"
+                          (change)="toggleBucketSelection(t.id)"
+                        />
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm font-semibold leading-snug break-words">{{ t.title }}</div>
+                          <div class="flex flex-wrap items-center gap-1.5 mt-0.5 text-xs opacity-80">
+                            @if (t.top3) {
+                              <span class="badge badge-warning badge-xs">Top 3</span>
+                            }
+                            @if (t.priority === 'high') {
+                              <span class="badge badge-error badge-outline badge-xs">High</span>
+                            }
+                            <span class="badge badge-ghost badge-xs">{{ formatDur(t.durationMin) }}</span>
+                            @if (t.subtasks.length > 0) {
+                              <span>{{ doneSubCount(t) }}/{{ t.subtasks.length }} steps</span>
+                            }
+                            @if (focusedOf(t.id) > 0) {
+                              <span class="badge badge-primary badge-outline badge-xs" data-testid="bucket-focused-badge">
+                                {{ focusedOf(t.id) }}m focused
+                              </span>
+                            }
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center gap-1 flex-none">
+                        @if (pulledOnSelectedDate().has(t.id)) {
+                          <span class="badge badge-success badge-outline badge-xs" data-testid="in-plan-badge">
+                            In plan
+                          </span>
+                        } @else {
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-xs min-h-8"
+                            [attr.aria-label]="'Pull ' + t.title + ' into plan'"
+                            (click)="pullOne(t.id)"
+                          >
+                            + Pull
+                          </button>
+                        }
+                        <button
+                          type="button"
+                          class="btn btn-outline btn-xs min-h-8 px-2"
+                          [attr.aria-label]="'Finish ' + t.title + ' in bucket'"
+                          title="Mark finished in bucket"
+                          (click)="state.toggleDone(t.id)"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs opacity-65 px-1.5"
+                          [attr.aria-label]="'Delete ' + t.title"
+                          (click)="state.deleteTask(t.id)"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  }
                 </div>
               }
             </div>
@@ -339,6 +390,7 @@ export class TodayPageComponent {
   readonly noteStatus = signal('');
   readonly bucketOpenOverride = signal<boolean | null>(null);
   readonly bucketFilter = signal<CategoryId | 'all'>('all');
+  readonly selectedBucketIds = signal<Set<string>>(new Set());
 
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
   private noteDate = '';
@@ -370,6 +422,14 @@ export class TodayPageComponent {
     sortTasksByPriority(tasksForDayView(this.state.tasks(), this.state.selectedDate())),
   );
 
+  readonly pulledOnSelectedDate = computed(() => {
+    const ids = new Set<string>();
+    for (const t of this.visibleTasks()) {
+      if (!t.done && t.sourceTaskId) ids.add(t.sourceTaskId);
+    }
+    return ids;
+  });
+
   readonly isBucketExpanded = computed(() => {
     const ov = this.bucketOpenOverride();
     if (ov !== null) return ov;
@@ -387,6 +447,29 @@ export class TodayPageComponent {
     if (f === 'all') return all;
     const matched = all.filter(t => t.category === f);
     return matched.length > 0 ? matched : all;
+  });
+
+  readonly bucketCategoryGroups = computed(() => groupTasksByCategory(this.filteredBucket()));
+
+  readonly pullableBucketIds = computed(() => {
+    const pulled = this.pulledOnSelectedDate();
+    return this.filteredBucket()
+      .filter(t => !pulled.has(t.id))
+      .map(t => t.id);
+  });
+
+  readonly selectedBucketCount = computed(() => {
+    const pullable = new Set(this.pullableBucketIds());
+    let count = 0;
+    for (const id of this.selectedBucketIds()) {
+      if (pullable.has(id)) count += 1;
+    }
+    return count;
+  });
+
+  readonly allPullableSelected = computed(() => {
+    const ids = this.pullableBucketIds();
+    return ids.length > 0 && ids.every(id => this.selectedBucketIds().has(id));
   });
 
   readonly categoryGroups = computed(() => groupTasksByCategory(this.visibleTasks()));
@@ -456,10 +539,6 @@ export class TodayPageComponent {
     return formatDuration(min);
   }
 
-  catLabel(id: CategoryId): string {
-    return CATEGORIES.find(c => c.id === id)?.label ?? 'Work';
-  }
-
   doneSubCount(t: TaskItem): number {
     return t.subtasks.filter(s => s.done).length;
   }
@@ -470,6 +549,42 @@ export class TodayPageComponent {
 
   toggleBucket(): void {
     this.bucketOpenOverride.set(!this.isBucketExpanded());
+  }
+
+  toggleBucketSelection(id: string): void {
+    this.selectedBucketIds.update(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  toggleSelectAllBucket(): void {
+    const ids = this.pullableBucketIds();
+    if (this.allPullableSelected()) {
+      this.selectedBucketIds.set(new Set());
+    } else {
+      this.selectedBucketIds.set(new Set(ids));
+    }
+  }
+
+  pullOne(id: string): void {
+    this.selectedBucketIds.update(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    void this.state.pullToDate(id, this.state.selectedDate());
+  }
+
+  pullSelected(): void {
+    const pullable = new Set(this.pullableBucketIds());
+    const ids = [...this.selectedBucketIds()].filter(id => pullable.has(id));
+    if (!ids.length) return;
+    this.selectedBucketIds.set(new Set());
+    void this.state.pullManyToDate(ids, this.state.selectedDate());
   }
 
   shiftDay(delta: number): void {

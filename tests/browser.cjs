@@ -50,7 +50,7 @@ async function noOverflow(page, label) {
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
   await noOverflow(page, 'Today empty (390px)');
 
-  // 2. Quick-add: undated tasks go to Unfinished Bucket; dated tasks go to Today's Daily plan
+  // 2. Quick-add: undated tasks go to Unfinished Bucket grouped by Category & Priority
   const titleInput = page.getByRole('textbox', { name: 'New task title' });
   const dateInput = page.getByLabel('Task date');
   const timeInput = page.getByLabel('Task start time');
@@ -60,35 +60,50 @@ async function noOverflow(page, label) {
   const top3Btn = page.getByRole('button', { name: 'Pin as Top 3' });
   const addBtn = page.locator('dp-quick-add button[type="submit"]');
 
-  // Task 1: Undated Household task -> lands in Unfinished Bucket (NOT in Today's Daily plan)
+  // Task 1: Undated Household task -> lands in Unfinished Bucket under Household category
   assert.equal(await dateInput.inputValue(), '', 'Date starts blank by default');
   await titleInput.fill('Fix kitchen hinge');
   await catSelect.selectOption('household');
   await addBtn.click();
-  await page.locator('[data-testid="bucket-panel"]').getByText('Fix kitchen hinge').waitFor();
+  await page.locator('[data-bucket-category="household"]').getByText('Fix kitchen hinge').waitFor();
   assert.equal(await page.locator('[data-category="household"]').count(), 0, 'bucket item stays out of Daily plan until pulled');
 
-  // Task 2: Undated Family tasks (Normal + High -> High sorted first in bucket)
+  // Task 2: Undated Family tasks (Normal + High -> High sorted first inside bucket's Family category)
   await titleInput.fill('Plan weekend dinner');
   await catSelect.selectOption('family');
   await addBtn.click();
-  await page.locator('[data-testid="bucket-panel"]').getByText('Plan weekend dinner').waitFor();
+  await page.locator('[data-bucket-category="family"]').getByText('Plan weekend dinner').waitFor();
 
   await titleInput.fill('Book family flight');
   await catSelect.selectOption('family');
   await highBtn.click();
   await addBtn.click();
-  await page.locator('[data-testid="bucket-panel"]').getByText('Book family flight').waitFor();
+  await page.locator('[data-bucket-category="family"]').getByText('Book family flight').waitFor();
 
-  // Pull "Fix kitchen hinge" from Unfinished Bucket into Today's plan
+  const bucketFamilyTitles = await page
+    .locator('[data-bucket-category="family"] [data-bucket-task] .text-sm.font-semibold')
+    .allTextContents();
+  assert.deepEqual(
+    bucketFamilyTitles.map(s => s.trim()),
+    ['Book family flight', 'Plan weekend dinner'],
+  );
+
+  // Pull "Fix kitchen hinge" (1-tap) -> enters Daily plan AND remains in Unfinished Bucket ("In plan")
   await page.getByRole('button', { name: 'Pull Fix kitchen hinge into plan' }).click();
   await page.locator('[data-category="household"]').getByText('Fix kitchen hinge').waitFor();
+  await page.locator('[data-category="household"] [data-testid="from-bucket-badge"]').waitFor();
 
-  // Pull both Family tasks into Today's plan and verify High sorts before Normal inside Family
-  await page.locator('[data-testid="bucket-panel"] button[aria-expanded]').click();
-  await page.getByRole('button', { name: 'Pull Plan weekend dinner into plan' }).click();
-  await page.getByRole('button', { name: 'Pull Book family flight into plan' }).click();
+  // Expand bucket and multi-select BOTH Family tasks -> "+ Pull selected (2)"
+  const bucketToggle = page.locator('[data-testid="bucket-panel"] button[aria-expanded]');
+  if ((await bucketToggle.getAttribute('aria-expanded')) !== 'true') {
+    await bucketToggle.click();
+  }
+  await page.locator('[data-bucket-category="household"] [data-testid="in-plan-badge"]').waitFor();
+  await page.getByRole('checkbox', { name: 'Select Book family flight to pull' }).check();
+  await page.getByRole('checkbox', { name: 'Select Plan weekend dinner to pull' }).check();
+  await page.locator('[data-testid="pull-selected-btn"]', { hasText: '+ Pull selected (2)' }).click();
   await page.locator('[data-category="family"]').getByText('Book family flight').waitFor();
+  await page.locator('[data-category="family"]').getByText('Plan weekend dinner').waitFor();
 
   const familyTitles = await page
     .locator('[data-category="family"] dp-task-card article button[aria-label^="Edit "]')
@@ -97,6 +112,18 @@ async function noOverflow(page, label) {
     familyTitles.map(s => s.trim()),
     ['Book family flight', 'Plan weekend dinner'],
   );
+
+  // Completing the pulled daily task ("Fix kitchen hinge") must NOT complete its parent in Unfinished Bucket!
+  await page
+    .locator('[data-category="household"] dp-task-card button.tick')
+    .click();
+  await page.locator('[data-category="household"] article.is-done').waitFor();
+  // Parent still exists in bucket and is now eligible to pull again (no longer In plan)
+  await page.getByRole('button', { name: 'Pull Fix kitchen hinge into plan' }).waitFor();
+
+  // Completing the parent directly inside Unfinished Bucket finishes it and removes it from Unfinished Bucket
+  await page.getByRole('button', { name: 'Finish Fix kitchen hinge in bucket' }).click();
+  await page.locator('[data-bucket-category="household"]').waitFor({ state: 'hidden' });
 
   // Task 3: Children dated task (Today + Top 3)
   await titleInput.fill('Pack school snacks');
@@ -137,40 +164,32 @@ async function noOverflow(page, label) {
   await addBtn.click();
   await page.getByText('Fourth priority').waitFor();
 
-  // 3. Multi-day task progress: edit + subtasks + Focus 7m -> Return to Bucket -> verify progress preserved
-  await page.getByRole('button', { name: 'Edit Fix kitchen hinge' }).click();
+  // 3. Standalone dated task edit + subtasks + Focus 7m -> Return to Bucket
+  await page.getByRole('button', { name: 'Edit Fourth priority' }).click();
   await page.locator('[data-testid="task-editor"]').waitFor();
-  await page.getByRole('textbox', { name: 'Edit task title' }).fill('Fix kitchen cabinet');
+  await page.getByRole('textbox', { name: 'Edit task title' }).fill('Fix garage door');
   await page.getByRole('textbox', { name: 'New subtask' }).fill('Grab screwdriver');
   await page.getByRole('button', { name: '+ Step' }).click();
   await page.getByRole('checkbox', { name: 'Toggle subtask Grab screwdriver' }).check();
   await page.getByRole('button', { name: 'Save changes' }).click();
-  await page.getByText('Fix kitchen cabinet').waitFor();
+  await page.getByText('Fix garage door').waitFor();
   await page.getByText('1/1 steps').waitFor();
 
-  // Focus 7m on multi-day task, then return it to the Unfinished Bucket
-  await page.getByRole('button', { name: 'Focus on Fix kitchen cabinet' }).click();
+  // Focus 7m on pulled daily task "Book family flight" -> rolls up 7m to parent bucket task!
+  await page.locator('[data-category="family"]').getByRole('button', { name: 'Focus on Book family flight' }).click();
   await page.locator('#focus').waitFor({ state: 'visible' });
   await page.clock.fastForward(7 * 60 * 1000 + 5000);
   await page.locator('#focus button', { hasText: 'Stop' }).click();
   await page.locator('#focus').waitFor({ state: 'hidden' });
-  await page.locator('[data-testid="focused-badge"]', { hasText: '7m focused' }).waitFor();
+  await page.locator('[data-category="family"] [data-testid="focused-badge"]', { hasText: '7m focused' }).waitFor();
+  await page.locator('[data-bucket-category="family"] [data-testid="bucket-focused-badge"]', { hasText: '7m focused' }).waitFor();
 
-  await page.getByRole('button', { name: 'Return Fix kitchen cabinet to bucket' }).click();
-  await page.locator('[data-category="household"]').waitFor({ state: 'hidden' });
-  assert.equal(await page.locator('[data-category="household"]').count(), 0, 'returned task leaves Daily plan');
-  const bucketToggle = page.locator('[data-testid="bucket-panel"] button[aria-expanded]');
-  if ((await bucketToggle.getAttribute('aria-expanded')) !== 'true') {
-    await bucketToggle.click();
-  }
-  await page.locator('[data-testid="bucket-panel"]').getByText('Fix kitchen cabinet').waitFor();
-  await page.locator('[data-testid="bucket-panel"]').getByText('1/1 steps').waitFor();
-  await page.locator('[data-testid="bucket-panel"] [data-testid="bucket-focused-badge"]', { hasText: '7m focused' }).waitFor();
-
-  // Verify bucket task does NOT appear on Tomorrow
+  // Return standalone task "Fix garage door" to bucket & verify it leaves Tomorrow
+  await page.getByRole('button', { name: 'Return Fix garage door to bucket' }).click();
+  await page.locator('dp-task-card', { hasText: 'Fix garage door' }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Next day' }).click();
   await page.getByRole('heading', { name: 'Thursday, November 26' }).waitFor();
-  assert.equal(await page.locator('dp-task-card', { hasText: 'Fix kitchen cabinet' }).count(), 0);
+  assert.equal(await page.locator('dp-task-card', { hasText: 'Fix garage door' }).count(), 0);
   await page.getByRole('button', { name: 'Back to today →' }).click();
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
 
@@ -229,12 +248,12 @@ async function noOverflow(page, label) {
   // 8. Week view: Unfinished bucket tray, add goal, move task with arrow button, check overflow
   await nav(page, 'Week');
   await page.locator('[data-testid="week-goals"]').waitFor();
-  await page.locator('[data-testid="week-undated"]').getByText('Fix kitchen cabinet').waitFor();
+  await page.locator('[data-testid="week-undated"]').getByText('Fix garage door').waitFor();
   await page.getByRole('textbox', { name: 'New weekly goal' }).fill('Finish Q4 launch');
   await page.locator('[data-testid="week-goals"] button[type="submit"]').click();
   await page.getByText('Finish Q4 launch').waitFor();
-  await page.getByRole('button', { name: 'Move Fourth priority later' }).click();
-  await page.locator('[data-week-day="2026-11-26"]').getByText('Fourth priority').waitFor();
+  await page.getByRole('button', { name: 'Move Pay electric bill later' }).click();
+  await page.locator('[data-week-day="2026-11-26"]').getByText('Pay electric bill').waitFor();
   await noOverflow(page, 'Week (390px)');
   await page.screenshot({ path: path.join(OUT, 'week.png'), fullPage: true });
 
@@ -245,11 +264,11 @@ async function noOverflow(page, label) {
   await page.locator('[data-testid="month-goals"] button[type="submit"]').click();
   await page.getByText('Close November sprint').waitFor();
   await page.locator('[data-month-day="2026-11-26"]').click();
-  await page.locator('[data-testid="month-inspector"]').getByText('Fourth priority').waitFor();
-  await page.getByRole('button', { name: 'Move Fourth priority' }).click();
-  await page.getByLabel('Move Fourth priority to date').fill('2026-11-27');
+  await page.locator('[data-testid="month-inspector"]').getByText('Pay electric bill').waitFor();
+  await page.getByRole('button', { name: 'Move Pay electric bill' }).click();
+  await page.getByLabel('Move Pay electric bill to date').fill('2026-11-27');
   await page.locator('[data-month-day="2026-11-27"]').click();
-  await page.locator('[data-testid="month-inspector"]').getByText('Fourth priority').waitFor();
+  await page.locator('[data-testid="month-inspector"]').getByText('Pay electric bill').waitFor();
   await noOverflow(page, 'Month (390px)');
   await page.getByRole('button', { name: 'Open day →' }).click();
   await page.getByRole('heading', { name: 'Friday, November 27' }).waitFor();
@@ -337,7 +356,7 @@ async function noOverflow(page, label) {
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
   await context.setOffline(false);
 
-  // 14. Dark mode screenshot (expand bucket so both bucket and daily plan appear)
+  // 14. Dark mode screenshot (expand bucket so both Daily plan and grouped Unfinished bucket appear)
   const finalBucketToggle = page.locator('[data-testid="bucket-panel"] button[aria-expanded]');
   if ((await finalBucketToggle.getAttribute('aria-expanded')) !== 'true') {
     await finalBucketToggle.click();

@@ -243,13 +243,28 @@ export function detectConflicts(tasks: readonly TaskItem[]): Set<string> {
   return conflicts;
 }
 
-/** Computes total focused minutes per task solely from DayRecord focus sessions (breaks excluded). */
-export function focusByTask(days: Record<string, DayRecord>): Record<string, number> {
+/**
+ * Computes total focused minutes per task from DayRecord focus sessions (breaks excluded).
+ * When `tasks` is provided, also rolls up focus minutes from linked daily tasks (`sourceTaskId`)
+ * onto their parent bucket task ID.
+ */
+export function focusByTask(
+  days: Record<string, DayRecord>,
+  tasks: readonly TaskItem[] = [],
+): Record<string, number> {
+  const sourceByTask = new Map<string, string>();
+  for (const t of tasks) {
+    if (t.sourceTaskId) sourceByTask.set(t.id, t.sourceTaskId);
+  }
   const totals: Record<string, number> = {};
   for (const day of Object.values(days)) {
     for (const s of day.sessions ?? []) {
       if (s.kind !== 'focus' || !s.taskId || s.minutes <= 0) continue;
       totals[s.taskId] = (totals[s.taskId] ?? 0) + s.minutes;
+      const parentId = sourceByTask.get(s.taskId);
+      if (parentId) {
+        totals[parentId] = (totals[parentId] ?? 0) + s.minutes;
+      }
     }
   }
   return totals;
@@ -750,12 +765,13 @@ function cleanTask(raw: unknown): TaskItem | null {
   const completedAt = done && typeof t['completedAt'] === 'string' ? t['completedAt'].slice(0, 40) : null;
   const rolloverCount = clampInt(t['rolloverCount'], 0, 999, 0);
   const order = clampInt(t['order'], 0, 100000, 0);
+  const sourceTaskId = trimCap(t['sourceTaskId'], 64) || null;
   const createdAt =
     typeof t['createdAt'] === 'string' && t['createdAt']
       ? t['createdAt'].slice(0, 40)
       : `${date ?? localToday()}T09:00:00.000Z`;
 
-  return {
+  const cleaned: TaskItem = {
     id,
     title,
     date,
@@ -772,6 +788,8 @@ function cleanTask(raw: unknown): TaskItem | null {
     order,
     createdAt,
   };
+  if (sourceTaskId) cleaned.sourceTaskId = sourceTaskId;
+  return cleaned;
 }
 
 function cleanDayRecord(raw: unknown): DayRecord | null {

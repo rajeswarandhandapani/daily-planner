@@ -346,7 +346,7 @@ export class WeekPageComponent {
 
   onScheduleUndated(task: TaskItem, event: Event): void {
     const val = (event.target as HTMLInputElement).value;
-    if (val) void this.state.moveTask(task.id, val);
+    if (val) void this.state.pullToDate(task.id, val);
   }
 
   shiftTaskDay(task: TaskItem, delta: number): void {
@@ -378,6 +378,9 @@ export class WeekPageComponent {
     const id = event.dataTransfer?.getData('text/plain') || this.draggingId();
     this.draggingId.set(null);
     this.dragTarget.set(null);
-    if (id) void this.state.moveTask(id, iso);
+    if (!id) return;
+    const item = this.state.tasks().find(t => t.id === id);
+    if (item?.date === null) void this.state.pullToDate(id, iso);
+    else void this.state.moveTask(id, iso);
   }
 }

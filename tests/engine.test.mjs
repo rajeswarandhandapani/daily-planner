@@ -110,6 +110,16 @@ test('unfinished bucket holds incomplete undated tasks sorted by priority while 
   ];
 
   assert.deepEqual(
+    groupTasksByCategory(bucketTasks(items)).map(g => ({
+      cat: g.category.id,
+      ids: g.tasks.map(t => t.id),
+    })),
+    [
+      { cat: 'household', ids: ['u-high'] },
+      { cat: 'family', ids: ['u-normal'] },
+    ],
+  );
+  assert.deepEqual(
     bucketTasks(items).map(t => t.id),
     ['u-high', 'u-normal'],
   );
@@ -206,6 +216,11 @@ test('focus totals are computed from DayRecord sessions and niceHourScale produc
   };
 
   assert.deepEqual(focusByTask(days), { t1: 40 });
+  const linkedTasks = [
+    task({ id: 'parent', date: null }),
+    task({ id: 't1', date: '2026-11-25', sourceTaskId: 'parent' }),
+  ];
+  assert.deepEqual(focusByTask(days, linkedTasks), { t1: 40, parent: 40 });
   const load = dayLoad([task({ id: 't1', durationMin: 90, done: true })], days['2026-11-25'], 60);
   assert.equal(load.overCapacity, true);
   assert.equal(formatDuration(90), '1h 30m');
@@ -262,7 +277,7 @@ test('ICS escaping, 75-octet line folding, and schedule/reminder exports follow 
 
 test('backups round-trip undated & dated tasks cleanly, refuse bad files, and sanitize untrusted input', () => {
   const tasks = [
-    task({ id: 't1', title: 'Ship v1', startTime: '10:00', top3: true, priority: 'high', category: 'work' }),
+    task({ id: 't1', title: 'Ship v1', startTime: '10:00', top3: true, priority: 'high', category: 'work', sourceTaskId: 't2' }),
     task({ id: 't2', title: 'Organize garage', date: null, category: 'household' }),
   ];
   const days = [{ date: '2026-11-25', habits: { h1: true }, note: 'Solid day', sessions: [{ id: 's1', taskId: 't1', kind: 'focus', minutes: 25, endedAt: '2026-11-25T10:30:00Z' }] }];

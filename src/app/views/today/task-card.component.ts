@@ -60,7 +60,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
                 {{ task().top3 ? '★' : '☆' }}
               </button>
               @if (!task().done) {
-                @if (task().date !== null) {
+                @if (task().date !== null && !task().sourceTaskId) {
                   <button
                     type="button"
                     class="btn btn-ghost btn-xs px-1.5 gap-1"
@@ -98,6 +98,10 @@ import { PlannerStateService } from '../../services/planner-state.service';
 
             @if (task().priority === 'high') {
               <span class="badge badge-error badge-outline badge-xs">High</span>
+            }
+
+            @if (task().sourceTaskId) {
+              <span class="badge badge-ghost badge-xs" data-testid="from-bucket-badge">From bucket</span>
             }
 
             @if (task().date === null) {
@@ -303,7 +307,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
               <button type="button" class="btn btn-outline btn-xs" (click)="moveTo(nextMonIso())">
                 Next Mon
               </button>
-              @if (task().date !== null) {
+              @if (task().date !== null && !task().sourceTaskId) {
                 <button type="button" class="btn btn-outline btn-xs" (click)="returnToBucket()">
                   Bucket
                 </button>
