@@ -1,0 +1,18 @@
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/.angular/cache
+
+# Node & test output
+node_modules/
+test-output/
+npm-debug.log
+
+# Never commit personal planner backups or exports
+daily-planner-*.json
+*.ics
+
+# System & IDEs
+.DS_Store
+Thumbs.db
