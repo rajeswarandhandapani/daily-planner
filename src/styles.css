@@ -11,13 +11,26 @@
   --dp-planned: color-mix(in oklab, var(--color-base-content) 26%, var(--color-base-200));
 }
 
+/* Angular routed view hosts must be flex columns so sections keep a consistent 14px vertical rhythm. */
+dp-today-page,
+dp-week-page,
+dp-month-page,
+dp-review-page,
+dp-data-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
 /* Wider reading width for Week and Month boards; keep focused 680px width on Today, Review, Data. */
 .app-main:has(dp-week-page),
 .app-main:has(dp-month-page) {
   max-width: 1080px;
 }
 
-.app-header-inner:has(+ *) {
+body:has(dp-week-page) .app-header-inner,
+body:has(dp-month-page) .app-header-inner {
   max-width: 1080px;
 }
 
@@ -35,10 +48,16 @@
 .strip {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
-  max-width: 460px;
+  gap: 8px;
+  max-width: 400px;
   width: 100%;
   margin: 0 auto;
+  padding: 4px 0;
+}
+
+.strip .cell {
+  aspect-ratio: auto;
+  height: 44px;
 }
 
 .cell[data-s="done"] {

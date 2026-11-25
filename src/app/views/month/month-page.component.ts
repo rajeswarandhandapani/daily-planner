@@ -189,7 +189,7 @@ const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numer
                   <span class="opacity-70">Move</span>
                   <input
                     type="date"
-                    class="input input-bordered input-xs"
+                    class="input input-bordered input-xs w-auto"
                     [attr.aria-label]="'Move ' + t.title + ' to date'"
                     [value]="t.date"
                     (change)="onMoveTaskDate(t, $event)"

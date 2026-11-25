@@ -131,7 +131,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
                 <span class="text-xs opacity-70">Start time</span>
                 <input
                   type="time"
-                  class="input input-bordered input-sm"
+                  class="input input-bordered input-sm w-auto"
                   aria-label="Edit start time"
                   [value]="editTime()"
                   (input)="editTime.set(asValue($event))"
@@ -141,7 +141,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
               <label class="flex flex-col gap-1">
                 <span class="text-xs opacity-70">Duration</span>
                 <select
-                  class="select select-bordered select-sm"
+                  class="select select-bordered select-sm w-auto"
                   aria-label="Edit duration"
                   [value]="'' + editDuration()"
                   (change)="editDuration.set(+asValue($event))"
@@ -155,7 +155,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
               <label class="flex flex-col gap-1">
                 <span class="text-xs opacity-70">Category</span>
                 <select
-                  class="select select-bordered select-sm"
+                  class="select select-bordered select-sm w-auto"
                   aria-label="Edit category"
                   [value]="editCategory()"
                   (change)="editCategory.set(asCategory($event))"
@@ -169,7 +169,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
               <label class="flex flex-col gap-1">
                 <span class="text-xs opacity-70">Priority</span>
                 <select
-                  class="select select-bordered select-sm"
+                  class="select select-bordered select-sm w-auto"
                   aria-label="Edit priority"
                   [value]="editPriority()"
                   (change)="editPriority.set(asPriority($event))"
@@ -260,7 +260,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
               </button>
               <input
                 type="date"
-                class="input input-bordered input-xs"
+                class="input input-bordered input-xs w-auto"
                 aria-label="Move task to date"
                 [value]="task().date"
                 (change)="onMoveDate($event)"

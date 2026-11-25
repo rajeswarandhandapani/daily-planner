@@ -5,8 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { DIST_ROOT, start } = require('../scripts/serve-dist.cjs');
 
-const PORT = 4184;
-const URL = `http://localhost:${PORT}/`;
+const PORT = Number(process.env.PORT) || 4184;
+const URL = `http://127.0.0.1:${PORT}/`;
 const OUT = path.join(__dirname, '..', 'test-output');
 const WEDNESDAY = new Date('2026-11-25T09:00:00');
 

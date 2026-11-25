@@ -36,11 +36,11 @@ import { PlannerStateService } from '../../services/planner-state.service';
         </div>
 
         <div class="flex flex-wrap items-center gap-2 text-xs">
-          <label class="flex items-center gap-1">
+          <label class="flex items-center gap-1.5">
             <span class="opacity-70">Time</span>
             <input
               type="time"
-              class="input input-bordered input-xs min-h-8"
+              class="input input-bordered input-xs min-h-8 w-auto"
               aria-label="Task start time"
               [value]="startTime()"
               (input)="startTime.set(asValue($event))"
@@ -48,7 +48,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
           </label>
 
           <select
-            class="select select-bordered select-xs min-h-8"
+            class="select select-bordered select-xs min-h-8 w-auto"
             aria-label="Task duration"
             [value]="'' + durationMin()"
             (change)="durationMin.set(+asValue($event))"
@@ -59,7 +59,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
           </select>
 
           <select
-            class="select select-bordered select-xs min-h-8"
+            class="select select-bordered select-xs min-h-8 w-auto"
             aria-label="Task category"
             [value]="category()"
             (change)="setCategory(asValue($event))"
