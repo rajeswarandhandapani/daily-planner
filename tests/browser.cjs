@@ -50,63 +50,111 @@ async function noOverflow(page, label) {
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
   await noOverflow(page, 'Today empty (390px)');
 
-  // 2. Quick-add Top 3 timed, High, and untimed tasks; enforce Top 3 cap.
+  // 2. Quick-add: undated by default, dated via Today/Time, and expanded categories (Household, Family, Children)
   const titleInput = page.getByRole('textbox', { name: 'New task title' });
+  const dateInput = page.getByLabel('Task date');
   const timeInput = page.getByLabel('Task start time');
   const durSelect = page.getByRole('combobox', { name: 'Task duration' });
+  const catSelect = page.getByRole('combobox', { name: 'Task category' });
   const highBtn = page.getByRole('button', { name: 'Mark as High priority' });
   const top3Btn = page.getByRole('button', { name: 'Pin as Top 3' });
   const addBtn = page.locator('dp-quick-add button[type="submit"]');
 
-  // Task 1: Top 3 + High + 09:00 60m
+  // Task 1: Undated Household task (no date, no time -> stays undated with Anytime badge)
+  assert.equal(await dateInput.inputValue(), '', 'Date starts blank by default');
+  await titleInput.fill('Fix kitchen hinge');
+  await catSelect.selectOption('household');
+  await addBtn.click();
+  await page.locator('[data-category="household"]').getByText('Fix kitchen hinge').waitFor();
+  await page.locator('[data-category="household"] [data-testid="undated-badge"]').waitFor();
+
+  // Task 2: Undated Family task with High priority (should appear before Normal inside Family)
+  await titleInput.fill('Plan weekend dinner');
+  await catSelect.selectOption('family');
+  await addBtn.click();
+  await page.locator('[data-category="family"]').getByText('Plan weekend dinner').waitFor();
+
+  await titleInput.fill('Book family flight');
+  await catSelect.selectOption('family');
+  await highBtn.click();
+  await addBtn.click();
+  await page.locator('[data-category="family"]').getByText('Book family flight').waitFor();
+
+  // Verify priority ordering inside Family: High before Normal
+  const familyTitles = await page
+    .locator('[data-category="family"] dp-task-card article button[aria-label^="Edit "]')
+    .allTextContents();
+  assert.deepEqual(
+    familyTitles.map(s => s.trim()),
+    ['Book family flight', 'Plan weekend dinner'],
+  );
+
+  // Task 3: Children dated task (Today + Top 3)
+  await titleInput.fill('Pack school snacks');
+  await catSelect.selectOption('children');
+  const todayPill = page.getByRole('button', { name: 'Set date to selected day' });
+  await todayPill.click();
+  await page.waitForFunction(() => document.querySelector('input[aria-label="Task date"]')?.value === '2026-11-25');
+  assert.equal(await dateInput.inputValue(), '2026-11-25');
+  await top3Btn.click();
+  await addBtn.click();
+  await page.locator('[data-category="children"]').getByText('Pack school snacks').waitFor();
+
+  // Task 4: Work timed Top 3 + High (09:00 60m -> auto-tags selected date)
   await titleInput.fill('Ship Q4; budget, plan');
+  await catSelect.selectOption('work');
   await timeInput.fill('09:00');
   await durSelect.selectOption('60');
   await highBtn.click();
   await top3Btn.click();
   await addBtn.click();
-  await page.locator('[data-testid="top3-section"]').getByText('Ship Q4; budget, plan').waitFor();
+  await page.locator('[data-category="work"]').getByText('Ship Q4; budget, plan').waitFor();
 
-  // Task 2: Top 3 + 09:30 30m (overlaps Task 1!)
+  // Verify no duplicate cards for Top 3 task
+  assert.equal(await page.locator('dp-task-card', { hasText: 'Ship Q4; budget, plan' }).count(), 1);
+
+  // Task 5: Work overlapping timed Top 3 (09:30 30m)
   await titleInput.fill('Design sync');
+  await catSelect.selectOption('work');
   await timeInput.fill('09:30');
   await durSelect.selectOption('30');
   await top3Btn.click();
   await addBtn.click();
   await page.locator('[data-testid="conflict-badge"]').first().waitFor();
 
-  // Task 3: Top 3 untimed
-  await titleInput.fill('Write architecture doc');
-  await top3Btn.click();
-  await addBtn.click();
-  await page.getByText('Write architecture doc').waitFor();
-
-  // Task 4: 4th Top 3 should be refused with toast
+  // Task 6: 4th Top 3 dated task refused with toast
   await titleInput.fill('Fourth priority');
+  await page.getByRole('button', { name: 'Set date to selected day' }).click();
   await top3Btn.click();
   await addBtn.click();
   await page.locator('#toast', { hasText: 'already have 3 Top 3' }).waitFor();
-  // Unpin Top 3 and add normally
   await top3Btn.click();
   await addBtn.click();
   await page.getByText('Fourth priority').waitFor();
 
   // 3. Inline edit + subtasks
-  await page.getByRole('button', { name: 'Edit Write architecture doc' }).click();
+  await page.getByRole('button', { name: 'Edit Fix kitchen hinge' }).click();
   await page.locator('[data-testid="task-editor"]').waitFor();
-  await page.getByRole('textbox', { name: 'Edit task title' }).fill('Write architecture spec');
-  await page.getByRole('textbox', { name: 'New subtask' }).fill('Draft diagram');
+  await page.getByRole('textbox', { name: 'Edit task title' }).fill('Fix kitchen cabinet');
+  await page.getByRole('textbox', { name: 'New subtask' }).fill('Grab screwdriver');
   await page.getByRole('button', { name: '+ Step' }).click();
-  await page.getByRole('checkbox', { name: 'Toggle subtask Draft diagram' }).check();
+  await page.getByRole('checkbox', { name: 'Toggle subtask Grab screwdriver' }).check();
   await page.getByRole('button', { name: 'Save changes' }).click();
-  await page.getByText('Write architecture spec').waitFor();
+  await page.getByText('Fix kitchen cabinet').waitFor();
   await page.getByText('1/1 steps').waitFor();
 
-  // 4. Toggle Timeline view and back to Grouped
+  // Verify undated task does NOT appear on Tomorrow
+  await page.getByRole('button', { name: 'Next day' }).click();
+  await page.getByRole('heading', { name: 'Thursday, November 26' }).waitFor();
+  assert.equal(await page.getByText('Fix kitchen cabinet').count(), 0, 'undated task stays off tomorrow');
+  await page.getByRole('button', { name: 'Back to today →' }).click();
+  await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
+
+  // 4. Toggle Timeline view and back to By Category
   await page.getByRole('button', { name: 'Timeline' }).click();
   await page.locator('[data-testid="timeline-view"]').waitFor();
   await noOverflow(page, 'Today Timeline (390px)');
-  await page.getByRole('button', { name: 'Grouped' }).click();
+  await page.getByRole('button', { name: 'By Category' }).click();
   await page.locator('[data-testid="timeline-view"]').waitFor({ state: 'hidden' });
 
   // 5. Focus timer: #focus visible, kit #timer-bar stays hidden, logs completion + break offer, and logs partial stop.
@@ -119,29 +167,29 @@ async function noOverflow(page, label) {
   assert.ok(await page.locator('#toast button', { hasText: 'Start 5m break' }).isVisible());
   await page.locator('[data-testid="focused-badge"]', { hasText: '25m focused' }).waitFor();
 
-  // Manual stop after 7 minutes logs 7m
-  await page.getByRole('button', { name: 'Focus on Fourth priority' }).click();
+  // Focus on undated task + manual stop after 7 minutes logs 7m to Today
+  await page.getByRole('button', { name: 'Focus on Fix kitchen cabinet' }).click();
   await page.locator('#focus').waitFor({ state: 'visible' });
   await page.clock.fastForward(7 * 60 * 1000 + 5000);
   await page.locator('#focus button', { hasText: 'Stop' }).click();
   await page.locator('#focus').waitFor({ state: 'hidden' });
   await page.locator('[data-testid="focused-badge"]', { hasText: '7m focused' }).waitFor();
 
-  // 6. Seed an overdue task on Yesterday (Nov 24), return to Today, roll over + Undo + roll over
+  // 6. Automatic daily carry-forward: create a pending task on Yesterday (Nov 24), reload, assert auto-carried to Today with ↻ 1
   await page.getByRole('button', { name: 'Previous day' }).click();
   await page.getByRole('heading', { name: 'Tuesday, November 24' }).waitFor();
   await titleInput.fill('Pay electric bill');
+  await page.getByRole('button', { name: 'Set date to selected day' }).click();
   await addBtn.click();
   await page.getByText('Pay electric bill').waitFor();
-  await page.getByRole('button', { name: 'Back to today →' }).click();
+
+  await page.reload();
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
-  await page.locator('[data-testid="rollover-banner"]').waitFor();
-  await page.getByRole('button', { name: 'Move all to today' }).click();
-  await page.locator('[data-testid="rollover-badge"]', { hasText: '↻ 1' }).waitFor();
-  await page.locator('#toast button', { hasText: 'Undo' }).click();
-  await page.locator('[data-testid="rollover-banner"]').waitFor();
-  await page.getByRole('button', { name: 'Move all to today' }).click();
-  await page.locator('[data-testid="rollover-badge"]', { hasText: '↻ 1' }).waitFor();
+  await page.locator('dp-task-card', { hasText: 'Pay electric bill' }).waitFor();
+  await page
+    .locator('dp-task-card', { hasText: 'Pay electric bill' })
+    .locator('[data-testid="rollover-badge"]', { hasText: '↻ 1' })
+    .waitFor();
 
   // 7. Habits from Today + Daily Note with XSS payload + reload persistence
   await page.getByRole('button', { name: 'Add a habit' }).click();
@@ -162,9 +210,10 @@ async function noOverflow(page, label) {
   assert.equal(await page.evaluate(() => window.__xss), undefined);
   await page.locator('[data-testid="focused-badge"]', { hasText: '25m focused' }).waitFor();
 
-  // 8. Week view: add goal, move task with arrow button, check overflow
+  // 8. Week view: undated tray, add goal, move task with arrow button, check overflow
   await nav(page, 'Week');
   await page.locator('[data-testid="week-goals"]').waitFor();
+  await page.locator('[data-testid="week-undated"]').getByText('Fix kitchen cabinet').waitFor();
   await page.getByRole('textbox', { name: 'New weekly goal' }).fill('Finish Q4 launch');
   await page.locator('[data-testid="week-goals"] button[type="submit"]').click();
   await page.getByText('Finish Q4 launch').waitFor();
@@ -173,7 +222,7 @@ async function noOverflow(page, label) {
   await noOverflow(page, 'Week (390px)');
   await page.screenshot({ path: path.join(OUT, 'week.png'), fullPage: true });
 
-  // 9. Month view: add goal, select date, move task via date picker, Open day
+  // 9. Month view: add goal, select date, compact Move button + date picker, Open day
   await nav(page, 'Month');
   await page.locator('[data-testid="month-goals"]').waitFor();
   await page.getByRole('textbox', { name: 'New monthly goal' }).fill('Close November sprint');
@@ -181,6 +230,7 @@ async function noOverflow(page, label) {
   await page.getByText('Close November sprint').waitFor();
   await page.locator('[data-month-day="2026-11-26"]').click();
   await page.locator('[data-testid="month-inspector"]').getByText('Fourth priority').waitFor();
+  await page.getByRole('button', { name: 'Move Fourth priority' }).click();
   await page.getByLabel('Move Fourth priority to date').fill('2026-11-27');
   await page.locator('[data-month-day="2026-11-27"]').click();
   await page.locator('[data-testid="month-inspector"]').getByText('Fourth priority').waitFor();
@@ -237,7 +287,7 @@ async function noOverflow(page, label) {
 
   await page.getByRole('button', { name: 'Erase all data' }).click();
   await page.locator('dialog').getByRole('button', { name: 'Erase' }).click();
-  await page.getByText('No tasks planned for this day yet.').waitFor();
+  await page.getByText('No tasks here yet.').waitFor();
 
   await nav(page, 'Data');
   await page.locator('input[type=file]').setInputFiles({

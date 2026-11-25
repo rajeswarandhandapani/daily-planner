@@ -7,13 +7,14 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { barPath, niceScale, pointerIn } from '../../kit/chart-kit';
+import { barPath, pointerIn } from '../../kit/chart-kit';
 import { dayLetter, shortDate } from '../../kit/dates';
 import {
   addDays,
   focusSeries,
   formatDuration,
   mondayOf,
+  niceHourScale,
   planningStreak,
   weekPlanId,
   weeklyReview,
@@ -25,10 +26,10 @@ import { PlannerStateService } from '../../services/planner-state.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex items-center justify-between gap-2">
+    <div class="flex items-center justify-center gap-3">
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Previous review week"
         (click)="shiftWeek(-7)"
       >
@@ -40,7 +41,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
       </div>
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Next review week"
         (click)="shiftWeek(7)"
       >
@@ -79,14 +80,18 @@ import { PlannerStateService } from '../../services/planner-state.service';
     <!-- 14-Day SVG Focus vs Planned Chart -->
     <section class="card bg-base-100 border border-base-300 shadow-xs">
       <div class="card-body p-4 gap-2">
-        <div class="flex items-center justify-between gap-2">
-          <h2 class="text-base font-bold m-0">Focus vs. planned (14 days)</h2>
-          <div class="flex items-center gap-3 text-xs opacity-75">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-base font-bold m-0">14-day focus &amp; load</h2>
+          <div class="flex flex-wrap items-center gap-3 text-xs opacity-75">
             <span class="inline-flex items-center gap-1">
               <i class="cat-dot" style="background: var(--dp-planned)"></i> Planned
             </span>
             <span class="inline-flex items-center gap-1">
               <i class="cat-dot" style="background: var(--dp-focus)"></i> Focused
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <span class="w-3 border-t-2 border-dashed border-base-content/60 inline-block"></span>
+              Capacity
             </span>
           </div>
         </div>
@@ -134,7 +139,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
       </div>
     </section>
 
-    <!-- Category Breakdown -->
+    <!-- Category Breakdown (progress bar reflects completion %) -->
     @if (review().categories.length > 0) {
       <section class="card bg-base-100 border border-base-300 shadow-xs" data-testid="category-breakdown">
         <div class="card-body p-4 gap-3">
@@ -147,7 +152,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
                   {{ cat.label }}
                 </span>
                 <span class="opacity-75">
-                  {{ cat.doneTasks }}/{{ cat.totalTasks }} done · {{ formatDur(cat.plannedMin) }}
+                  {{ cat.doneTasks }}/{{ cat.totalTasks }} done ({{ cat.completionPct }}%) · {{ formatDur(cat.plannedMin) }}
                   @if (cat.focusedMin > 0) {
                     · {{ formatDur(cat.focusedMin) }} focused
                   }
@@ -155,8 +160,8 @@ import { PlannerStateService } from '../../services/planner-state.service';
               </div>
               <div class="w-full h-2 rounded bg-base-200 overflow-hidden">
                 <div
-                  class="h-full rounded"
-                  [style.width.%]="catWidth(cat.plannedMin)"
+                  class="h-full rounded transition-all"
+                  [style.width.%]="cat.completionPct"
                   [style.background]="'var(' + cat.colorVar + ')'"
                 ></div>
               </div>
@@ -186,7 +191,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
             @for (t of review().unfinished; track t.id) {
               <div class="flex items-center justify-between gap-2 py-1 border-t border-base-300 first-of-type:border-t-0">
                 <span class="truncate">{{ t.title }}</span>
-                <span class="text-xs opacity-65 flex-none">{{ formatShort(t.date) }}</span>
+                <span class="text-xs opacity-65 flex-none">{{ t.date ? formatShort(t.date) : 'Anytime' }}</span>
               </div>
             }
           </div>
@@ -240,6 +245,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
           <textarea
             rows="2"
             class="textarea textarea-bordered w-full"
+            placeholder="Highlights or wins from this week…"
             aria-label="What went well"
             [value]="wins()"
             (input)="onReflInput('wins', $event)"
@@ -252,6 +258,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
           <textarea
             rows="2"
             class="textarea textarea-bordered w-full"
+            placeholder="Blockers or over-committed areas…"
             aria-label="What slipped and why"
             [value]="slipped()"
             (input)="onReflInput('slipped', $event)"
@@ -264,6 +271,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
           <textarea
             rows="2"
             class="textarea textarea-bordered w-full"
+            placeholder="One clear priority for next week…"
             aria-label="Top focus for next week"
             [value]="nextFocus()"
             (input)="onReflInput('nextFocus', $event)"
@@ -321,7 +329,7 @@ export class ReviewPageComponent {
     for (const p of this.series()) {
       peak = Math.max(peak, p.plannedMin, p.focusedMin);
     }
-    return niceScale(peak);
+    return niceHourScale(peak);
   });
 
   readonly chartTicks = computed(() => {
@@ -368,10 +376,6 @@ export class ReviewPageComponent {
     });
   });
 
-  private readonly maxCatMin = computed(() =>
-    Math.max(1, ...this.review().categories.map(c => c.plannedMin)),
-  );
-
   constructor() {
     effect(() => {
       const id = this.planId();
@@ -400,10 +404,6 @@ export class ReviewPageComponent {
 
   letterOf(iso: string): string {
     return dayLetter(iso);
-  }
-
-  catWidth(min: number): number {
-    return Math.max(4, Math.round((min / this.maxCatMin()) * 100));
   }
 
   shiftWeek(deltaDays: number): void {

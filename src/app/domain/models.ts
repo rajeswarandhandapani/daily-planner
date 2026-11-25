@@ -1,8 +1,15 @@
 import type { ReminderConfig } from '../kit/ics';
 
 export type Priority = 'normal' | 'high';
-export type CategoryId = 'work' | 'personal' | 'health' | 'finance' | 'errands';
-export type DayPart = 'morning' | 'afternoon' | 'evening' | 'anytime';
+export type CategoryId =
+  | 'work'
+  | 'personal'
+  | 'household'
+  | 'family'
+  | 'children'
+  | 'health'
+  | 'finance'
+  | 'errands';
 
 export interface CategoryMeta {
   id: CategoryId;
@@ -13,6 +20,9 @@ export interface CategoryMeta {
 export const CATEGORIES: readonly CategoryMeta[] = [
   { id: 'work', label: 'Work', colorVar: '--dp-cat-work' },
   { id: 'personal', label: 'Personal', colorVar: '--dp-cat-personal' },
+  { id: 'household', label: 'Household', colorVar: '--dp-cat-household' },
+  { id: 'family', label: 'Family', colorVar: '--dp-cat-family' },
+  { id: 'children', label: 'Children', colorVar: '--dp-cat-children' },
   { id: 'health', label: 'Health', colorVar: '--dp-cat-health' },
   { id: 'finance', label: 'Finance', colorVar: '--dp-cat-finance' },
   { id: 'errands', label: 'Errands', colorVar: '--dp-cat-errands' },
@@ -43,7 +53,8 @@ export interface Subtask {
 export interface TaskItem {
   id: string;
   title: string;
-  date: string; // YYYY-MM-DD
+  /** ISO date YYYY-MM-DD when scheduled, or null when undated. */
+  date: string | null;
   startTime: string | null; // HH:MM or null
   durationMin: number;
   priority: Priority;

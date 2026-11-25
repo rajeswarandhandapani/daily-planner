@@ -1,6 +1,6 @@
-// Pure TypeScript planning engine: calendar math, grouping, conflict detection,
-// rollover, focus totals, habit streaks, weekly review, and strict backup validation.
-// Zero DOM dependencies — runs directly under Node 24 tests.
+// Pure TypeScript planning engine: calendar math, category+priority grouping,
+// conflict detection, automatic daily carry-forward, focus totals, habit streaks,
+// weekly review, and strict backup validation. Zero DOM dependencies.
 
 import {
   addDays,
@@ -20,7 +20,7 @@ import {
   CATEGORIES,
   CATEGORY_IDS,
   type CategoryId,
-  type DayPart,
+  type CategoryMeta,
   type DayRecord,
   DEFAULT_REMINDER,
   DEFAULT_SETTINGS,
@@ -124,28 +124,68 @@ export function monthPlanId(ym: string): string {
   return `M:${ym}`;
 }
 
-export function dayPartOf(startTime: string | null): DayPart {
-  if (!startTime || !isTime(startTime)) return 'anytime';
-  const mins = timeToMinutes(startTime);
-  if (mins < 12 * 60) return 'morning';
-  if (mins < 17 * 60) return 'afternoon';
-  return 'evening';
-}
-
-export function sortTasksForDay(tasks: readonly TaskItem[]): TaskItem[] {
+/**
+ * Sorts tasks by priority under a category or day:
+ * Undone first -> Top 3 -> High priority -> Normal -> timed chronology -> order -> createdAt.
+ */
+export function sortTasksByPriority(tasks: readonly TaskItem[]): TaskItem[] {
   return [...tasks].sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
     if (a.top3 !== b.top3) return a.top3 ? -1 : 1;
+    if (a.priority !== b.priority) return a.priority === 'high' ? -1 : 1;
     const aTimed = a.startTime !== null;
     const bTimed = b.startTime !== null;
     if (aTimed !== bTimed) return aTimed ? -1 : 1;
     if (a.startTime && b.startTime && a.startTime !== b.startTime) {
       return a.startTime < b.startTime ? -1 : 1;
     }
-    if (a.priority !== b.priority) return a.priority === 'high' ? -1 : 1;
     if (a.order !== b.order) return a.order - b.order;
     return a.createdAt.localeCompare(b.createdAt);
   });
+}
+
+export interface CategoryGroup {
+  category: CategoryMeta;
+  tasks: TaskItem[];
+  doneCount: number;
+  totalCount: number;
+}
+
+/** Groups tasks by Category (in CATEGORIES order) and sorts by Priority under each category. */
+export function groupTasksByCategory(tasks: readonly TaskItem[]): CategoryGroup[] {
+  const byCat = new Map<CategoryId, TaskItem[]>();
+  for (const t of tasks) {
+    const list = byCat.get(t.category) ?? [];
+    list.push(t);
+    byCat.set(t.category, list);
+  }
+  const groups: CategoryGroup[] = [];
+  for (const cat of CATEGORIES) {
+    const raw = byCat.get(cat.id);
+    if (!raw || raw.length === 0) continue;
+    const sorted = sortTasksByPriority(raw);
+    groups.push({
+      category: cat,
+      tasks: sorted,
+      doneCount: sorted.filter(t => t.done).length,
+      totalCount: sorted.length,
+    });
+  }
+  return groups;
+}
+
+/**
+ * Returns tasks visible on a date in Today view:
+ * - On `todayIso`: dated tasks for `todayIso` + undated (`date === null`) tasks.
+ * - On any other date: only tasks dated to `selectedIso`.
+ */
+export function tasksForDayView(
+  allTasks: readonly TaskItem[],
+  selectedIso: string,
+  todayIso: string,
+): TaskItem[] {
+  const includeUndated = selectedIso === todayIso;
+  return allTasks.filter(t => t.date === selectedIso || (includeUndated && t.date === null));
 }
 
 export interface TimelineRange {
@@ -153,18 +193,25 @@ export interface TimelineRange {
   endHour: number;
 }
 
-/** Defaults to 06:00–22:00 and expands to include any earlier or later timed task. */
+/**
+ * Adaptive timeline range: when timed tasks exist, spans from 1 hour before earliest
+ * to 1 hour after latest (clamped 0–24); when none exist, defaults to 08:00–18:00.
+ */
 export function timelineRange(tasks: readonly TaskItem[]): TimelineRange {
-  let startHour = 6;
-  let endHour = 22;
-  for (const t of tasks) {
-    if (!t.startTime || !isTime(t.startTime)) continue;
-    const startMin = timeToMinutes(t.startTime);
+  const timed = tasks.filter(t => t.startTime !== null && isTime(t.startTime));
+  if (timed.length === 0) return { startHour: 8, endHour: 18 };
+  let minHour = 23;
+  let maxHour = 1;
+  for (const t of timed) {
+    const startMin = timeToMinutes(t.startTime as string);
     const endMin = startMin + Math.max(MIN_DURATION_MIN, t.durationMin);
-    startHour = Math.min(startHour, Math.floor(startMin / 60));
-    endHour = Math.max(endHour, Math.min(24, Math.ceil(endMin / 60)));
+    minHour = Math.min(minHour, Math.floor(startMin / 60));
+    maxHour = Math.max(maxHour, Math.min(24, Math.ceil(endMin / 60)));
   }
-  return { startHour, endHour };
+  return {
+    startHour: Math.max(0, minHour - 1),
+    endHour: Math.min(24, Math.max(minHour + 3, maxHour + 1)),
+  };
 }
 
 /**
@@ -263,9 +310,9 @@ export function dayStatus(tasksForDay: readonly TaskItem[]): DayStatus {
   return 'planned';
 }
 
-export function top3CountOnDate(
+export function top3CountOnScope(
   tasks: readonly TaskItem[],
-  date: string,
+  date: string | null,
   excludeId?: string,
 ): number {
   let count = 0;
@@ -275,9 +322,10 @@ export function top3CountOnDate(
   return count;
 }
 
+/** Pending dated tasks strictly before `todayIso` (undated tasks are not overdue). */
 export function overdueTasks(tasks: readonly TaskItem[], todayIso: string): TaskItem[] {
   return tasks
-    .filter(t => !t.done && t.date < todayIso)
+    .filter((t): t is TaskItem & { date: string } => !t.done && t.date !== null && t.date < todayIso)
     .sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
       if (a.top3 !== b.top3) return a.top3 ? -1 : 1;
@@ -302,7 +350,7 @@ export function rolloverTo(
 ): RolloverResult {
   const idSet = new Set(ids);
   const previous: TaskItem[] = [];
-  let targetTop3 = top3CountOnDate(allTasks, targetIso);
+  let targetTop3 = top3CountOnScope(allTasks, targetIso);
   let movedCount = 0;
   let demotedTop3Count = 0;
 
@@ -328,6 +376,19 @@ export function rolloverTo(
   });
 
   return { tasks: updated, movedCount, demotedTop3Count, previous };
+}
+
+/** Automatically carries all pending dated tasks from previous days forward to `todayIso`. */
+export function carryForwardPending(allTasks: readonly TaskItem[], todayIso: string): RolloverResult {
+  const pending = overdueTasks(allTasks, todayIso);
+  if (pending.length === 0) {
+    return { tasks: [...allTasks], movedCount: 0, demotedTop3Count: 0, previous: [] };
+  }
+  return rolloverTo(
+    allTasks,
+    pending.map(t => t.id),
+    todayIso,
+  );
 }
 
 export function habitStreak(
@@ -357,7 +418,9 @@ export function habitHasHistory(days: Record<string, DayRecord>, habitId: string
 export function planningStreak(tasks: readonly TaskItem[], todayIso: string): number {
   const completedDates = new Set<string>();
   for (const t of tasks) {
-    if (t.done) completedDates.add(t.date);
+    if (!t.done) continue;
+    const d = t.date ?? (t.completedAt ? t.completedAt.slice(0, 10) : null);
+    if (d && isIsoDate(d)) completedDates.add(d);
   }
   let cursor = todayIso;
   if (!completedDates.has(cursor)) {
@@ -377,6 +440,7 @@ export interface CategoryBreakdown {
   colorVar: string;
   totalTasks: number;
   doneTasks: number;
+  completionPct: number;
   plannedMin: number;
   focusedMin: number;
 }
@@ -410,7 +474,7 @@ export function weeklyReview(
   const monday = mondayOf(mondayIso);
   const dates = weekDates(monday);
   const dateSet = new Set(dates);
-  const weekTasks = tasks.filter(t => dateSet.has(t.date));
+  const weekTasks = tasks.filter(t => t.date !== null && dateSet.has(t.date));
   const doneTasks = weekTasks.filter(t => t.done).length;
   const totalTasks = weekTasks.length;
   const completionPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
@@ -440,6 +504,7 @@ export function weeklyReview(
       colorVar: c.colorVar,
       totalTasks: 0,
       doneTasks: 0,
+      completionPct: 0,
       plannedMin: 0,
       focusedMin: 0,
     });
@@ -454,11 +519,15 @@ export function weeklyReview(
   }
   const categories = [...catMap.values()]
     .filter(c => c.totalTasks > 0 || c.focusedMin > 0)
+    .map(c => ({
+      ...c,
+      completionPct: c.totalTasks > 0 ? Math.round((c.doneTasks / c.totalTasks) * 100) : 0,
+    }))
     .sort((a, b) => b.plannedMin - a.plannedMin || b.totalTasks - a.totalTasks);
 
   const unfinished = weekTasks
     .filter(t => !t.done)
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.top3 === b.top3 ? 0 : a.top3 ? -1 : 1));
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || (a.top3 === b.top3 ? 0 : a.top3 ? -1 : 1));
 
   const activeHabits = habits.filter(h => !h.archived);
   let habitDoneTotal = 0;
@@ -506,6 +575,7 @@ export function focusSeries(
   for (const d of dates) byDate.set(d, { plannedMin: 0, doneCount: 0 });
 
   for (const t of tasks) {
+    if (!t.date) continue;
     const slot = byDate.get(t.date);
     if (!slot) continue;
     slot.plannedMin += t.durationMin;
@@ -523,6 +593,15 @@ export function focusSeries(
   });
 }
 
+/** Computes clean hour-aligned scale steps (e.g. 60m, 120m, 180m) for the focus/planned SVG chart. */
+export function niceHourScale(peakMin: number): { step: number; top: number } {
+  const target = Math.max(120, peakMin);
+  const candidates = [60, 120, 180, 240];
+  const step = candidates.find(s => Math.ceil(target / s) <= 4) ?? 240;
+  const top = Math.ceil(target / step) * step;
+  return { step, top };
+}
+
 export interface ReminderSummary {
   title: string;
   body: string;
@@ -530,7 +609,7 @@ export interface ReminderSummary {
 }
 
 export function reminderSummary(tasks: readonly TaskItem[], todayIso: string): ReminderSummary {
-  const todays = sortTasksForDay(tasks.filter(t => t.date === todayIso));
+  const todays = sortTasksByPriority(tasksForDayView(tasks, todayIso, todayIso));
   const top3 = todays.filter(t => t.top3);
   const allTop3Done = top3.length > 0 && top3.every(t => t.done);
   const remaining = todays.filter(t => !t.done);
@@ -538,7 +617,7 @@ export function reminderSummary(tasks: readonly TaskItem[], todayIso: string): R
   if (todays.length === 0) {
     return {
       title: 'Plan your day',
-      body: 'Pick your Top 3 priorities and time-block today.',
+      body: 'Pick your Top 3 priorities and organize today.',
       allTop3Done: false,
     };
   }
@@ -628,7 +707,13 @@ function cleanTask(raw: unknown): TaskItem | null {
   const t = raw as Record<string, unknown>;
   const id = trimCap(t['id'], 64);
   const title = trimCap(t['title'], MAX_TITLE_LEN);
-  if (!id || !title || !isIsoDate(t['date'])) return null;
+  if (!id || !title) return null;
+
+  let date: string | null = null;
+  if (t['date'] !== null && t['date'] !== undefined && t['date'] !== '') {
+    if (!isIsoDate(t['date'])) return null;
+    date = t['date'];
+  }
 
   const startTime = isTime(t['startTime']) ? t['startTime'] : null;
   const durationMin = clampInt(t['durationMin'], MIN_DURATION_MIN, MAX_DURATION_MIN, 30);
@@ -658,12 +743,15 @@ function cleanTask(raw: unknown): TaskItem | null {
   const completedAt = done && typeof t['completedAt'] === 'string' ? t['completedAt'].slice(0, 40) : null;
   const rolloverCount = clampInt(t['rolloverCount'], 0, 999, 0);
   const order = clampInt(t['order'], 0, 100000, 0);
-  const createdAt = typeof t['createdAt'] === 'string' && t['createdAt'] ? t['createdAt'].slice(0, 40) : `${t['date']}T09:00:00.000Z`;
+  const createdAt =
+    typeof t['createdAt'] === 'string' && t['createdAt']
+      ? t['createdAt'].slice(0, 40)
+      : `${date ?? localToday()}T09:00:00.000Z`;
 
   return {
     id,
     title,
-    date: t['date'],
+    date,
     startTime,
     durationMin,
     priority,
@@ -789,17 +877,18 @@ export function parseBackup(text: string): BackupData {
 
   const tasks: TaskItem[] = [];
   const seenTasks = new Set<string>();
-  const top3PerDate = new Map<string, number>();
+  const top3PerScope = new Map<string, number>();
   for (const item of obj['tasks']) {
     const cleaned = cleanTask(item);
     if (!cleaned || seenTasks.has(cleaned.id)) continue;
     seenTasks.add(cleaned.id);
     if (cleaned.top3) {
-      const n = top3PerDate.get(cleaned.date) ?? 0;
+      const scope = cleaned.date ?? '__undated__';
+      const n = top3PerScope.get(scope) ?? 0;
       if (n >= MAX_TOP3) {
         cleaned.top3 = false;
       } else {
-        top3PerDate.set(cleaned.date, n + 1);
+        top3PerScope.set(scope, n + 1);
       }
     }
     tasks.push(cleaned);

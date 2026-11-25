@@ -40,10 +40,10 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
     <section class="card bg-base-100 border border-base-300 shadow-xs">
       <div class="card-body p-4 gap-3">
         <h2 class="text-base font-bold m-0">Appearance</h2>
-        <label class="flex flex-col gap-1">
-          <span class="text-xs opacity-75">Theme</span>
+        <label class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span class="text-sm opacity-80">Theme</span>
           <select
-            class="select select-bordered w-full min-h-11"
+            class="select select-bordered w-full sm:w-56 min-h-11"
             aria-label="Theme"
             [value]="themeSvc.theme()"
             (change)="onThemeChange($event)"
@@ -61,10 +61,10 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
       <div class="card-body p-4 gap-3">
         <h2 class="text-base font-bold m-0">Planner &amp; focus timer</h2>
 
-        <label class="flex flex-col gap-1">
-          <span class="text-xs opacity-75">Daily capacity</span>
+        <label class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span class="text-sm opacity-80">Daily capacity</span>
           <select
-            class="select select-bordered w-full min-h-11"
+            class="select select-bordered w-full sm:w-56 min-h-11"
             aria-label="Daily capacity"
             [value]="'' + state.settings().dailyCapacityMin"
             (change)="onCapacityChange($event)"
@@ -77,10 +77,10 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
           </select>
         </label>
 
-        <label class="flex flex-col gap-1">
-          <span class="text-xs opacity-75">Focus session length</span>
+        <label class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span class="text-sm opacity-80">Focus session length</span>
           <select
-            class="select select-bordered w-full min-h-11"
+            class="select select-bordered w-full sm:w-56 min-h-11"
             aria-label="Focus session length"
             [value]="'' + state.settings().focusMinutes"
             (change)="onFocusChange($event)"
@@ -93,17 +93,17 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
           </select>
         </label>
 
-        <label class="flex flex-col gap-1">
-          <span class="text-xs opacity-75">Short break length</span>
+        <label class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span class="text-sm opacity-80">Short break length</span>
           <select
-            class="select select-bordered w-full min-h-11"
+            class="select select-bordered w-full sm:w-56 min-h-11"
             aria-label="Short break length"
             [value]="'' + state.settings().breakMinutes"
             (change)="onBreakChange($event)"
           >
             @for (m of breakPresets; track m) {
               <option [value]="m" [selected]="m === state.settings().breakMinutes">
-                {{ m }} minutes (15 min every 4th)
+                {{ m }} min (15m every 4th)
               </option>
             }
           </select>
@@ -183,11 +183,11 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
           <span class="text-sm">Daily planning reminder</span>
         </label>
 
-        <label class="flex flex-col gap-1">
-          <span class="text-xs opacity-75">Reminder time</span>
+        <label class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span class="text-sm opacity-80">Reminder time</span>
           <input
             type="time"
-            class="input input-bordered w-full min-h-11"
+            class="input input-bordered w-full sm:w-56 min-h-11"
             aria-label="Reminder time"
             [value]="state.settings().reminder.time"
             (change)="onReminderTimeChange($event)"
@@ -198,7 +198,7 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
           @for (chip of dayChips; track chip.dayIndex) {
             <button
               type="button"
-              class="btn btn-xs btn-outline rounded-full day-chip"
+              class="btn btn-sm btn-outline rounded-full day-chip min-h-9 px-3"
               [attr.aria-pressed]="'' + state.settings().reminder.days.includes(chip.dayIndex)"
               [attr.aria-label]="'Remind on ' + chip.longName"
               (click)="toggleReminderDay(chip.dayIndex)"

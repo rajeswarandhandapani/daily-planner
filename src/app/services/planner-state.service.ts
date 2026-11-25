@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ToastService } from '../kit/toast.service';
 import {
+  carryForwardPending,
   cleanSettings,
   focusByTask,
   isEmptyDayRecord,
@@ -10,7 +11,7 @@ import {
   overdueTasks,
   parseBackup,
   rolloverTo,
-  top3CountOnDate,
+  top3CountOnScope,
 } from '../domain/logic';
 import {
   type BackupData,
@@ -37,7 +38,7 @@ export type TodayViewMode = 'grouped' | 'timeline';
 
 export interface NewTaskInput {
   title: string;
-  date: string;
+  date?: string | null;
   startTime?: string | null;
   durationMin?: number;
   priority?: Priority;
@@ -76,11 +77,13 @@ export class PlannerStateService {
   readonly tasksByDate = computed(() => {
     const map: Record<string, TaskItem[]> = {};
     for (const t of this.tasks()) {
+      if (t.date === null) continue;
       (map[t.date] ??= []).push(t);
     }
     return map;
   });
 
+  readonly undatedTasks = computed(() => this.tasks().filter(t => t.date === null));
   readonly overdue = computed(() => overdueTasks(this.tasks(), this.today()));
   readonly focusMinutesByTask = computed(() => focusByTask(this.days()));
   readonly activeHabits = computed(() => this.settings().habits.filter(h => !h.archived));
@@ -117,6 +120,8 @@ export class PlannerStateService {
     this.settings.set(cleanSettings(rawSettings));
     this.lastBackup.set(lastBackup ?? null);
     this.lastReminder.set(lastReminder ?? null);
+
+    await this.autoCarryForward(now);
   }
 
   refreshTodayIfChanged(): void {
@@ -125,7 +130,27 @@ export class PlannerStateService {
       const wasOnToday = this.selectedDate() === this.today();
       this.today.set(now);
       if (wasOnToday) this.selectedDate.set(now);
+      void this.autoCarryForward(now);
     }
+  }
+
+  private async autoCarryForward(todayIso: string): Promise<void> {
+    const res = carryForwardPending(this.tasks(), todayIso);
+    if (res.movedCount === 0) return;
+
+    this.tasks.set(res.tasks);
+    const movedSet = new Set(res.previous.map(p => p.id));
+    await this.store.putTasks(res.tasks.filter(t => movedSet.has(t.id)));
+
+    const msg = `Carried ${res.movedCount} pending ${res.movedCount === 1 ? 'task' : 'tasks'} to today.`;
+    this.toast.show(msg, {
+      label: 'Undo',
+      run: () => {
+        const prevMap = new Map(res.previous.map(p => [p.id, p]));
+        this.tasks.update(list => list.map(t => prevMap.get(t.id) ?? t));
+        void this.store.putTasks(res.previous);
+      },
+    });
   }
 
   openDate(iso: string): void {
@@ -157,18 +182,20 @@ export class PlannerStateService {
       this.toast.show('Enter a task title.');
       return null;
     }
+    const targetDate = input.date ?? null;
     const wantTop3 = input.top3 === true;
-    if (wantTop3 && top3CountOnDate(this.tasks(), input.date) >= MAX_TOP3) {
-      this.toast.show(`You already have ${MAX_TOP3} Top 3 priorities on that day.`);
+    if (wantTop3 && top3CountOnScope(this.tasks(), targetDate) >= MAX_TOP3) {
+      const scopeLabel = targetDate ? 'on that day' : 'among undated tasks';
+      this.toast.show(`You already have ${MAX_TOP3} Top 3 priorities ${scopeLabel}.`);
       return null;
     }
 
-    const existingOnDay = this.tasksByDate()[input.date] ?? [];
-    const maxOrder = existingOnDay.reduce((m, t) => Math.max(m, t.order), -1);
+    const existingInScope = targetDate ? (this.tasksByDate()[targetDate] ?? []) : this.undatedTasks();
+    const maxOrder = existingInScope.reduce((m, t) => Math.max(m, t.order), -1);
     const created: TaskItem = {
       id: uid('t'),
       title: title.slice(0, 180),
-      date: input.date,
+      date: targetDate,
       startTime: input.startTime || null,
       durationMin: Math.max(5, Math.min(480, Math.round(input.durationMin ?? 30))),
       priority: input.priority === 'high' ? 'high' : 'normal',
@@ -192,16 +219,17 @@ export class PlannerStateService {
     const current = this.tasks().find(t => t.id === id);
     if (!current) return false;
 
-    const targetDate = patch.date ?? current.date;
+    const targetDate = patch.date !== undefined ? patch.date : current.date;
     const nextTop3 = patch.top3 ?? current.top3;
-    if (nextTop3 && top3CountOnDate(this.tasks(), targetDate, id) >= MAX_TOP3) {
-      this.toast.show(`Already ${MAX_TOP3} Top 3 priorities on that day.`);
+    if (nextTop3 && top3CountOnScope(this.tasks(), targetDate, id) >= MAX_TOP3) {
+      this.toast.show(`Already ${MAX_TOP3} Top 3 priorities on that scope.`);
       return false;
     }
 
     const updated: TaskItem = {
       ...current,
       ...patch,
+      date: targetDate,
       title: (patch.title ?? current.title).trim().slice(0, 180) || current.title,
       durationMin: Math.max(5, Math.min(480, Math.round(patch.durationMin ?? current.durationMin))),
       notes: (patch.notes ?? current.notes).slice(0, 2000),
@@ -230,8 +258,8 @@ export class PlannerStateService {
     const current = this.tasks().find(t => t.id === id);
     if (!current) return;
     const nextTop3 = !current.top3;
-    if (nextTop3 && top3CountOnDate(this.tasks(), current.date, id) >= MAX_TOP3) {
-      this.toast.show(`You can pick at most ${MAX_TOP3} Top 3 priorities per day.`);
+    if (nextTop3 && top3CountOnScope(this.tasks(), current.date, id) >= MAX_TOP3) {
+      this.toast.show(`You can pick at most ${MAX_TOP3} Top 3 priorities.`);
       return;
     }
     const updated: TaskItem = { ...current, top3: nextTop3 };
@@ -253,14 +281,18 @@ export class PlannerStateService {
     });
   }
 
-  async moveTask(id: string, targetDate: string, { countRollover = false }: { countRollover?: boolean } = {}): Promise<void> {
+  async moveTask(
+    id: string,
+    targetDate: string | null,
+    { countRollover = false }: { countRollover?: boolean } = {},
+  ): Promise<void> {
     const current = this.tasks().find(t => t.id === id);
     if (!current || current.date === targetDate) return;
     const prev = { ...current, subtasks: current.subtasks.map(s => ({ ...s })) };
 
     let nextTop3 = current.top3;
     let demoted = false;
-    if (nextTop3 && top3CountOnDate(this.tasks(), targetDate, id) >= MAX_TOP3) {
+    if (nextTop3 && top3CountOnScope(this.tasks(), targetDate, id) >= MAX_TOP3) {
       nextTop3 = false;
       demoted = true;
     }
@@ -276,8 +308,10 @@ export class PlannerStateService {
     await this.store.putTask(updated);
 
     const msg = demoted
-      ? `Moved “${current.title}” (Top 3 cleared — target day already has ${MAX_TOP3}).`
-      : `Moved “${current.title}”.`;
+      ? `Moved “${current.title}” (Top 3 cleared — target already has ${MAX_TOP3}).`
+      : targetDate === null
+        ? `Cleared date on “${current.title}”.`
+        : `Moved “${current.title}”.`;
     this.toast.show(msg, {
       label: 'Undo',
       run: () => {

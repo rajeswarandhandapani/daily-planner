@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { shortDate } from '../../kit/dates';
 import { addDays, formatDuration, nextMonday } from '../../domain/logic';
 import {
   CATEGORIES,
@@ -60,32 +61,40 @@ import { PlannerStateService } from '../../services/planner-state.service';
               @if (!task().done) {
                 <button
                   type="button"
-                  class="btn btn-outline btn-xs"
+                  class="btn btn-outline btn-xs gap-1"
                   [class.btn-primary]="isFocusing()"
                   [attr.aria-label]="'Focus on ' + task().title"
                   (click)="focusTimer.startFocus(task())"
                 >
-                  ▶ Focus
+                  <svg class="w-2.5 h-2.5 fill-current" viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M2.5 1.5L10.5 6L2.5 10.5Z" />
+                  </svg>
+                  Focus
                 </button>
               }
             </div>
           </div>
 
           <div class="flex flex-wrap items-center gap-1.5 mt-1 text-xs opacity-80">
-            <span class="inline-flex items-center gap-1">
-              <i class="cat-dot" [style.background]="'var(' + catMeta().colorVar + ')'"></i>
-              {{ catMeta().label }}
-            </span>
+            @if (task().top3) {
+              <span class="badge badge-warning badge-xs">Top 3</span>
+            }
+
+            @if (task().priority === 'high') {
+              <span class="badge badge-error badge-outline badge-xs">High</span>
+            }
+
+            @if (task().date === null) {
+              <span class="badge badge-ghost badge-xs" data-testid="undated-badge">Anytime</span>
+            } @else if (task().date !== state.selectedDate()) {
+              <span class="badge badge-ghost badge-xs">{{ formatShort(task().date!) }}</span>
+            }
 
             @if (task().startTime; as st) {
               <span class="badge badge-ghost badge-xs font-mono">{{ st }}</span>
             }
 
             <span class="badge badge-ghost badge-xs">{{ formatDur(task().durationMin) }}</span>
-
-            @if (task().priority === 'high') {
-              <span class="badge badge-warning badge-xs">High</span>
-            }
 
             @if (conflict()) {
               <span class="badge badge-error badge-xs" data-testid="conflict-badge">Overlap</span>
@@ -128,6 +137,29 @@ import { PlannerStateService } from '../../services/planner-state.service';
 
             <div class="flex flex-wrap gap-2">
               <label class="flex flex-col gap-1">
+                <span class="text-xs opacity-70">Date</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    type="date"
+                    class="input input-bordered input-sm w-auto"
+                    aria-label="Edit task date"
+                    [value]="editDate()"
+                    (input)="editDate.set(asValue($event))"
+                  />
+                  @if (editDate()) {
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-label="Clear task date"
+                      (click)="editDate.set('')"
+                    >
+                      Clear
+                    </button>
+                  }
+                </div>
+              </label>
+
+              <label class="flex flex-col gap-1">
                 <span class="text-xs opacity-70">Start time</span>
                 <input
                   type="time"
@@ -147,7 +179,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
                   (change)="editDuration.set(+asValue($event))"
                 >
                   @for (m of durations; track m) {
-                    <option [value]="m" [selected]="m === editDuration()">{{ m }} min</option>
+                    <option [value]="m" [selected]="m === editDuration()">{{ formatDur(m) }}</option>
                   }
                 </select>
               </label>
@@ -244,27 +276,22 @@ import { PlannerStateService } from '../../services/planner-state.service';
           <div class="border-t border-base-300 pt-2 flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="text-xs opacity-70">Move:</span>
-              <button
-                type="button"
-                class="btn btn-outline btn-xs"
-                (click)="moveTo(tomorrowIso())"
-              >
+              @if (task().date !== state.today()) {
+                <button type="button" class="btn btn-outline btn-xs" (click)="moveTo(state.today())">
+                  Today
+                </button>
+              }
+              <button type="button" class="btn btn-outline btn-xs" (click)="moveTo(tomorrowIso())">
                 Tomorrow
               </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-xs"
-                (click)="moveTo(nextMonIso())"
-              >
+              <button type="button" class="btn btn-outline btn-xs" (click)="moveTo(nextMonIso())">
                 Next Mon
               </button>
-              <input
-                type="date"
-                class="input input-bordered input-xs w-auto"
-                aria-label="Move task to date"
-                [value]="task().date"
-                (change)="onMoveDate($event)"
-              />
+              @if (task().date !== null) {
+                <button type="button" class="btn btn-outline btn-xs" (click)="moveTo(null)">
+                  Undated
+                </button>
+              }
             </div>
 
             <button
@@ -293,6 +320,7 @@ export class TaskCardComponent {
 
   readonly editing = signal(false);
   readonly editTitle = signal('');
+  readonly editDate = signal('');
   readonly editTime = signal('');
   readonly editDuration = signal(30);
   readonly editCategory = signal<CategoryId>('work');
@@ -300,9 +328,6 @@ export class TaskCardComponent {
   readonly editNotes = signal('');
   readonly newSubtask = signal('');
 
-  readonly catMeta = computed(
-    () => CATEGORIES.find(c => c.id === this.task().category) ?? CATEGORIES[0],
-  );
   readonly focusedMin = computed(() => this.state.focusMinutesByTask()[this.task().id] ?? 0);
   readonly doneSubtasks = computed(() => this.task().subtasks.filter(s => s.done).length);
   readonly isFocusing = computed(
@@ -315,11 +340,16 @@ export class TaskCardComponent {
     return formatDuration(min);
   }
 
+  formatShort(iso: string): string {
+    return shortDate(iso);
+  }
+
   toggleEdit(): void {
     const next = !this.editing();
     if (next) {
       const t = this.task();
       this.editTitle.set(t.title);
+      this.editDate.set(t.date ?? '');
       this.editTime.set(t.startTime ?? '');
       this.editDuration.set(t.durationMin);
       this.editCategory.set(t.category);
@@ -344,6 +374,7 @@ export class TaskCardComponent {
   async saveEdits(): Promise<void> {
     const ok = await this.state.updateTask(this.task().id, {
       title: this.editTitle(),
+      date: this.editDate() || null,
       startTime: this.editTime() || null,
       durationMin: this.editDuration(),
       category: this.editCategory(),
@@ -361,13 +392,8 @@ export class TaskCardComponent {
     this.newSubtask.set('');
   }
 
-  moveTo(targetIso: string): void {
+  moveTo(targetIso: string | null): void {
     void this.state.moveTask(this.task().id, targetIso);
     this.editing.set(false);
-  }
-
-  onMoveDate(event: Event): void {
-    const val = (event.target as HTMLInputElement).value;
-    if (val) this.moveTo(val);
   }
 }

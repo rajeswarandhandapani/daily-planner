@@ -1,27 +1,29 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { dayName, shortDate } from '../../kit/dates';
+import { shortDate } from '../../kit/dates';
 import {
   addDays,
   dayLoad,
   formatDuration,
   mondayOf,
-  sortTasksForDay,
+  sortTasksByPriority,
   weekDates,
   weekPlanId,
 } from '../../domain/logic';
 import type { TaskItem } from '../../domain/models';
 import { PlannerStateService } from '../../services/planner-state.service';
 
+const SHORT_DAY = new Intl.DateTimeFormat('en-US', { weekday: 'short' });
+
 @Component({
   selector: 'dp-week-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex items-center justify-between gap-2">
+    <div class="flex items-center justify-center gap-3">
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Previous week"
         (click)="shiftWeek(-7)"
       >
@@ -37,7 +39,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
       </div>
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Next week"
         (click)="shiftWeek(7)"
       >
@@ -93,6 +95,36 @@ import { PlannerStateService } from '../../services/planner-state.service';
       </div>
     </section>
 
+    <!-- Undated tasks tray (only visible when undated tasks exist) -->
+    @if (undatedList().length > 0) {
+      <section class="card bg-base-100 border border-base-300 shadow-xs" data-testid="week-undated">
+        <div class="card-body p-3 gap-2">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-sm font-bold m-0">Undated tasks ({{ undatedList().length }})</h2>
+            <span class="text-xs opacity-65">Drag onto a day or pick a date to schedule</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            @for (t of undatedList(); track t.id) {
+              <div
+                class="px-2.5 py-1.5 rounded-lg border border-base-300 bg-base-200/60 text-xs flex items-center gap-2"
+                draggable="true"
+                (dragstart)="onDragStart($event, t)"
+                (dragend)="onDragEnd()"
+              >
+                <span class="font-medium">{{ t.title }}</span>
+                <input
+                  type="date"
+                  class="input input-bordered input-xs w-auto h-6 min-h-6"
+                  [attr.aria-label]="'Schedule ' + t.title"
+                  (change)="onScheduleUndated(t, $event)"
+                />
+              </div>
+            }
+          </div>
+        </div>
+      </section>
+    }
+
     <!-- 7-Day Board -->
     <div class="week-grid">
       @for (col of columns(); track col.iso) {
@@ -105,16 +137,16 @@ import { PlannerStateService } from '../../services/planner-state.service';
           (dragleave)="onDragLeave(col.iso)"
           (drop)="onDrop($event, col.iso)"
         >
-          <div class="flex items-center justify-between gap-1">
+          <div class="flex items-center justify-between gap-1 whitespace-nowrap">
             <button
               type="button"
-              class="font-bold text-sm text-left bg-transparent border-0 p-0 cursor-pointer hover:underline"
+              class="font-bold text-xs text-left bg-transparent border-0 p-0 cursor-pointer hover:underline truncate"
               (click)="openInToday(col.iso)"
             >
               {{ col.label }}
             </button>
             <span
-              class="text-xs"
+              class="text-xs flex-none"
               [class.text-warning]="col.load.overCapacity"
               [class.font-semibold]="col.load.overCapacity"
               [class.opacity-70]="!col.load.overCapacity"
@@ -131,7 +163,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
             [max]="state.settings().dailyCapacityMin"
           ></progress>
 
-          <div class="flex flex-col gap-1.5">
+          <div class="flex flex-col gap-1.5 flex-1">
             @for (t of col.tasks; track t.id) {
               <div
                 class="p-2 rounded-lg border border-base-300 bg-base-200/60 text-xs flex flex-col gap-1"
@@ -157,17 +189,17 @@ import { PlannerStateService } from '../../services/planner-state.service';
                   </span>
                 </div>
 
-                <div class="flex items-center justify-between gap-1 opacity-75">
-                  <span>
+                <div class="flex items-center justify-between gap-1 opacity-75 text-[11px]">
+                  <span class="whitespace-nowrap">
                     @if (t.startTime) {
                       {{ t.startTime }} ·
                     }
                     {{ formatDur(t.durationMin) }}
                   </span>
-                  <div class="flex items-center gap-0.5">
+                  <div class="flex items-center flex-none">
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs px-1 min-h-6 h-6"
+                      class="btn btn-ghost btn-xs px-0.5 min-h-6 h-6 w-5"
                       [attr.aria-label]="'Move ' + t.title + ' earlier'"
                       (click)="shiftTaskDay(t, -1)"
                     >
@@ -175,7 +207,7 @@ import { PlannerStateService } from '../../services/planner-state.service';
                     </button>
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs px-1 min-h-6 h-6"
+                      class="btn btn-ghost btn-xs px-0.5 min-h-6 h-6 w-5"
                       [attr.aria-label]="'Move ' + t.title + ' later'"
                       (click)="shiftTaskDay(t, 1)"
                     >
@@ -187,16 +219,27 @@ import { PlannerStateService } from '../../services/planner-state.service';
             }
           </div>
 
-          <form class="flex gap-1 mt-auto pt-1" (submit)="addDayTask($event, col.iso)">
-            <input
-              type="text"
-              class="input input-bordered input-xs flex-1 min-h-8"
-              placeholder="+ Task"
+          @if (addingDay() === col.iso) {
+            <form class="flex gap-1 pt-1" (submit)="addDayTask($event, col.iso)">
+              <input
+                type="text"
+                class="input input-bordered input-xs flex-1 min-h-8"
+                placeholder="Task title…"
+                [attr.aria-label]="'Add task on ' + col.label"
+                [value]="dayDrafts()[col.iso] ?? ''"
+                (input)="setDayDraft(col.iso, asValue($event))"
+              />
+            </form>
+          } @else {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs justify-start opacity-65 hover:opacity-100 mt-auto"
               [attr.aria-label]="'Add task on ' + col.label"
-              [value]="dayDrafts()[col.iso] ?? ''"
-              (input)="setDayDraft(col.iso, asValue($event))"
-            />
-          </form>
+              (click)="addingDay.set(col.iso)"
+            >
+              + Add
+            </button>
+          }
         </section>
       }
     </div>
@@ -208,12 +251,16 @@ export class WeekPageComponent {
 
   readonly goalDraft = signal('');
   readonly dayDrafts = signal<Record<string, string>>({});
+  readonly addingDay = signal<string | null>(null);
   readonly draggingId = signal<string | null>(null);
   readonly dragTarget = signal<string | null>(null);
 
   readonly currentMonday = computed(() => mondayOf(this.state.today()));
   readonly planId = computed(() => weekPlanId(this.state.weekMonday()));
   readonly goals = computed(() => this.state.plans()[this.planId()]?.goals ?? []);
+  readonly undatedList = computed(() =>
+    sortTasksByPriority(this.state.undatedTasks().filter(t => !t.done)),
+  );
 
   readonly weekHeading = computed(() => {
     const start = this.state.weekMonday();
@@ -227,10 +274,12 @@ export class WeekPageComponent {
     const days = this.state.days();
     const cap = this.state.settings().dailyCapacityMin;
     return dates.map(iso => {
-      const tasks = sortTasksForDay(byDate[iso] ?? []);
+      const tasks = sortTasksByPriority(byDate[iso] ?? []);
+      const dt = new Date(`${iso}T12:00:00`);
+      const label = `${SHORT_DAY.format(dt)} ${Number(iso.slice(8, 10))}`;
       return {
         iso,
-        label: dayName(iso),
+        label,
         tasks,
         load: dayLoad(tasks, days[iso], cap),
       };
@@ -287,10 +336,19 @@ export class WeekPageComponent {
     const title = (this.dayDrafts()[iso] ?? '').trim();
     if (!title) return;
     const created = await this.state.addTask({ title, date: iso });
-    if (created) this.setDayDraft(iso, '');
+    if (created) {
+      this.setDayDraft(iso, '');
+      this.addingDay.set(null);
+    }
+  }
+
+  onScheduleUndated(task: TaskItem, event: Event): void {
+    const val = (event.target as HTMLInputElement).value;
+    if (val) void this.state.moveTask(task.id, val);
   }
 
   shiftTaskDay(task: TaskItem, delta: number): void {
+    if (!task.date) return;
     void this.state.moveTask(task.id, addDays(task.date, delta));
   }
 

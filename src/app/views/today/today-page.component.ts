@@ -12,28 +12,21 @@ import { dayLetter, longDate, shortDate } from '../../kit/dates';
 import {
   addDays,
   dayLoad,
-  dayPartOf,
   dayStatus,
   detectConflicts,
   formatDuration,
+  groupTasksByCategory,
   mondayOf,
-  nextMonday,
-  sortTasksForDay,
+  sortTasksByPriority,
+  tasksForDayView,
   timelineRange,
   weekDates,
 } from '../../domain/logic';
-import type { DayPart, TaskItem } from '../../domain/models';
+import type { TaskItem } from '../../domain/models';
 import { PlannerStateService } from '../../services/planner-state.service';
 import { HabitStripComponent } from './habit-strip.component';
 import { QuickAddComponent } from './quick-add.component';
 import { TaskCardComponent } from './task-card.component';
-
-const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
-  { id: 'morning', label: 'Morning' },
-  { id: 'afternoon', label: 'Afternoon' },
-  { id: 'evening', label: 'Evening' },
-  { id: 'anytime', label: 'Anytime' },
-];
 
 @Component({
   selector: 'dp-today-page',
@@ -41,10 +34,10 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [QuickAddComponent, TaskCardComponent, HabitStripComponent],
   template: `
-    <div class="flex items-center justify-between gap-2">
+    <div class="flex items-center justify-center gap-3">
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Previous day"
         (click)="shiftDay(-1)"
       >
@@ -64,7 +57,7 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
       </div>
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Next day"
         (click)="shiftDay(1)"
       >
@@ -72,7 +65,7 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
       </button>
     </div>
 
-    <!-- 7-day strip -->
+    <!-- 7-day strip with day numbers -->
     <div class="strip" role="group" aria-label="This week">
       @for (d of stripDays(); track d.iso) {
         <button
@@ -85,7 +78,10 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
           [attr.aria-label]="d.label"
           (click)="state.openDate(d.iso)"
         >
-          <span>{{ d.letter }}</span>
+          <span class="flex flex-col items-center leading-tight">
+            <span class="text-[10px] opacity-75">{{ d.letter }}</span>
+            <span class="text-xs font-bold">{{ d.dayNum }}</span>
+          </span>
         </button>
       }
     </div>
@@ -117,73 +113,19 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
       </div>
     </section>
 
-    <!-- Overdue rollover banner -->
-    @if (state.overdue().length > 0) {
-      <section
-        class="card bg-warning/10 border border-warning/40 shadow-xs"
-        data-testid="rollover-banner"
-      >
-        <div class="card-body p-3 gap-2">
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-sm font-semibold">
-              {{ state.overdue().length }} unfinished
-              {{ state.overdue().length === 1 ? 'task' : 'tasks' }} from earlier
-            </span>
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              class="btn btn-warning btn-xs min-h-8"
-              (click)="rollAll(state.today())"
-            >
-              Move all to today
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-xs min-h-8"
-              (click)="rollAll(tomorrowIso())"
-            >
-              Tomorrow
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-xs min-h-8"
-              (click)="rollAll(nextMonIso())"
-            >
-              Next Monday
-            </button>
-          </div>
-        </div>
-      </section>
-    }
-
     <!-- Quick Add -->
-    <dp-quick-add #quickAdd [date]="state.selectedDate()" />
+    <dp-quick-add #quickAdd [selectedDate]="state.selectedDate()" />
 
-    <!-- Top 3 Priorities -->
-    @if (top3Tasks().length > 0) {
-      <section class="flex flex-col gap-2" data-testid="top3-section">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-bold uppercase tracking-wide opacity-75 m-0">
-            ★ Top 3 Priorities ({{ top3Tasks().length }}/3)
-          </h2>
-        </div>
-        @for (t of top3Tasks(); track t.id) {
-          <dp-task-card [task]="t" [conflict]="conflicts().has(t.id)" />
-        }
-      </section>
-    }
-
-    <!-- Schedule mode toggle -->
+    <!-- Schedule header & Grouped / Timeline toggle -->
     <div class="flex items-center justify-between gap-2">
-      <h2 class="text-base font-bold m-0">Schedule</h2>
+      <h2 class="text-base font-bold m-0">Tasks</h2>
       <div class="seg" role="group" aria-label="Schedule view">
         <button
           type="button"
           [attr.aria-pressed]="'' + (state.todayMode() === 'grouped')"
           (click)="state.setTodayMode('grouped')"
         >
-          Grouped
+          By Category
         </button>
         <button
           type="button"
@@ -195,27 +137,29 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
       </div>
     </div>
 
-    @if (dayTasks().length === 0) {
+    @if (visibleTasks().length === 0) {
       <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="card-body p-5 text-center text-sm opacity-75">
-          No tasks planned for this day yet. Add one above to get started.
+          No tasks here yet. Add one above — leave Date blank for anytime tasks, or set a date.
         </div>
       </div>
     } @else if (state.todayMode() === 'grouped') {
-      @for (group of groupedSections(); track group.id) {
-        @if (group.tasks.length > 0) {
-          <section class="flex flex-col gap-2" [attr.data-group]="group.id">
-            <h3 class="text-xs font-bold uppercase tracking-wide opacity-65 m-0">
-              {{ group.label }}
+      @for (group of categoryGroups(); track group.category.id) {
+        <section class="flex flex-col gap-2" [attr.data-category]="group.category.id">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 m-0">
+              <i class="cat-dot" [style.background]="'var(' + group.category.colorVar + ')'"></i>
+              <span>{{ group.category.label }}</span>
             </h3>
-            @for (t of group.tasks; track t.id) {
-              <dp-task-card [task]="t" [conflict]="conflicts().has(t.id)" />
-            }
-          </section>
-        }
+            <span class="text-xs opacity-65">{{ group.doneCount }}/{{ group.totalCount }}</span>
+          </div>
+          @for (t of group.tasks; track t.id) {
+            <dp-task-card [task]="t" [conflict]="conflicts().has(t.id)" />
+          }
+        </section>
       }
     } @else {
-      <!-- Timeline View -->
+      <!-- Adaptive Timeline View -->
       <section class="card bg-base-100 border border-base-300 shadow-xs" data-testid="timeline-view">
         <div class="card-body p-3 gap-0">
           @for (slot of timelineHours(); track slot.hour) {
@@ -231,13 +175,24 @@ const DAY_PARTS: readonly { id: DayPart; label: string }[] = [
         </div>
       </section>
 
-      @if (untimedTasks().length > 0) {
-        <section class="flex flex-col gap-2">
+      @if (untimedGroups().length > 0) {
+        <div class="flex flex-col gap-3">
           <h3 class="text-xs font-bold uppercase tracking-wide opacity-65 m-0">Untimed</h3>
-          @for (t of untimedTasks(); track t.id) {
-            <dp-task-card [task]="t" [conflict]="false" />
+          @for (group of untimedGroups(); track group.category.id) {
+            <section class="flex flex-col gap-2" [attr.data-category]="group.category.id">
+              <div class="flex items-center justify-between gap-2">
+                <h4 class="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 m-0">
+                  <i class="cat-dot" [style.background]="'var(' + group.category.colorVar + ')'"></i>
+                  <span>{{ group.category.label }}</span>
+                </h4>
+                <span class="text-xs opacity-65">{{ group.doneCount }}/{{ group.totalCount }}</span>
+              </div>
+              @for (t of group.tasks; track t.id) {
+                <dp-task-card [task]="t" [conflict]="false" />
+              }
+            </section>
           }
-        </section>
+        </div>
       }
     }
 
@@ -286,38 +241,31 @@ export class TodayPageComponent {
     return weekDates(monday).map(iso => ({
       iso,
       letter: dayLetter(iso),
+      dayNum: Number(iso.slice(8, 10)),
       label: longDate(iso),
       status: dayStatus(byDate[iso] ?? []),
     }));
   });
 
-  readonly dayTasks = computed(() =>
-    sortTasksForDay(this.state.tasksByDate()[this.state.selectedDate()] ?? []),
+  readonly visibleTasks = computed(() =>
+    sortTasksByPriority(
+      tasksForDayView(this.state.tasks(), this.state.selectedDate(), this.state.today()),
+    ),
   );
 
-  readonly top3Tasks = computed(() => this.dayTasks().filter(t => t.top3));
-  readonly remainingTasks = computed(() => this.dayTasks().filter(t => !t.top3));
-  readonly conflicts = computed(() => detectConflicts(this.dayTasks()));
+  readonly categoryGroups = computed(() => groupTasksByCategory(this.visibleTasks()));
+  readonly conflicts = computed(() => detectConflicts(this.visibleTasks()));
 
   readonly load = computed(() =>
     dayLoad(
-      this.dayTasks(),
+      this.visibleTasks(),
       this.state.days()[this.state.selectedDate()],
       this.state.settings().dailyCapacityMin,
     ),
   );
 
-  readonly groupedSections = computed(() => {
-    const items = this.remainingTasks();
-    return DAY_PARTS.map(part => ({
-      id: part.id,
-      label: part.label,
-      tasks: items.filter(t => dayPartOf(t.startTime) === part.id),
-    }));
-  });
-
   readonly timelineHours = computed(() => {
-    const timed = this.dayTasks().filter(t => t.startTime !== null);
+    const timed = this.visibleTasks().filter(t => t.startTime !== null);
     const { startHour, endHour } = timelineRange(timed);
     const byHour = new Map<number, TaskItem[]>();
     for (const t of timed) {
@@ -337,9 +285,9 @@ export class TodayPageComponent {
     return rows;
   });
 
-  readonly untimedTasks = computed(() => this.dayTasks().filter(t => t.startTime === null));
-  readonly tomorrowIso = computed(() => addDays(this.state.today(), 1));
-  readonly nextMonIso = computed(() => nextMonday(addDays(this.state.today(), 1)));
+  readonly untimedGroups = computed(() =>
+    groupTasksByCategory(this.visibleTasks().filter(t => t.startTime === null)),
+  );
 
   constructor() {
     effect(() => {
@@ -375,11 +323,6 @@ export class TodayPageComponent {
   shiftDay(delta: number): void {
     this.flushNote();
     this.state.openDate(addDays(this.state.selectedDate(), delta));
-  }
-
-  rollAll(targetIso: string): void {
-    const ids = this.state.overdue().map(t => t.id);
-    void this.state.rolloverTasks(ids, targetIso);
   }
 
   onNoteInput(event: Event): void {

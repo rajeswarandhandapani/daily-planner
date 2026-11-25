@@ -11,23 +11,25 @@ import { PlannerStateService } from '../../services/planner-state.service';
       <div class="card-body p-4 gap-3">
         <div class="flex items-center justify-between gap-2">
           <h2 class="text-base font-bold m-0">Daily habits</h2>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs"
-            (click)="adding.set(!adding())"
-          >
-            {{ adding() ? 'Done' : '+ Habit' }}
-          </button>
+          @if (state.activeHabits().length > 0 || adding()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs min-h-8"
+              (click)="adding.set(!adding())"
+            >
+              {{ adding() ? 'Done' : '+ Habit' }}
+            </button>
+          }
         </div>
 
         @if (state.activeHabits().length === 0 && !adding()) {
           <div class="flex items-center justify-between gap-2 text-sm opacity-75">
             <span>Track daily routines alongside your tasks.</span>
-            <button type="button" class="btn btn-outline btn-xs" (click)="adding.set(true)">
+            <button type="button" class="btn btn-outline btn-xs min-h-8" (click)="adding.set(true)">
               Add a habit
             </button>
           </div>
-        } @else {
+        } @else if (state.activeHabits().length > 0) {
           <div class="flex flex-wrap gap-2">
             @for (h of state.activeHabits(); track h.id) {
               <button

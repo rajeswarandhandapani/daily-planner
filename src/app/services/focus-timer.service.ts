@@ -56,7 +56,7 @@ export class FocusTimerService {
       kind: 'focus',
       minutes,
       taskId: task.id,
-      date: task.date,
+      date: task.date ?? this.state.today(),
       label: task.title,
     });
   }

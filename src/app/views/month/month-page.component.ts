@@ -7,7 +7,7 @@ import {
   monthKey,
   monthPlanId,
   shiftMonth,
-  sortTasksForDay,
+  sortTasksByPriority,
 } from '../../domain/logic';
 import type { TaskItem } from '../../domain/models';
 import { PlannerStateService } from '../../services/planner-state.service';
@@ -20,10 +20,10 @@ const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numer
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex items-center justify-between gap-2">
+    <div class="flex items-center justify-center gap-3">
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Previous month"
         (click)="moveMonth(-1)"
       >
@@ -39,7 +39,7 @@ const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numer
       </div>
       <button
         type="button"
-        class="btn btn-ghost btn-sm btn-square min-h-10"
+        class="btn btn-outline btn-xs min-h-8 w-8 px-0"
         aria-label="Next month"
         (click)="moveMonth(1)"
       >
@@ -163,38 +163,53 @@ const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numer
           <div class="flex flex-col gap-2">
             @for (t of selectedTasks(); track t.id) {
               <div
-                class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg border border-base-300"
+                class="flex flex-col gap-2 p-2.5 rounded-lg border border-base-300"
                 draggable="true"
                 (dragstart)="onDragStart($event, t)"
                 (dragend)="onDragEnd()"
               >
-                <div class="flex items-center gap-2 min-w-0 flex-1">
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-sm checkbox-success"
-                    [checked]="t.done"
-                    [attr.aria-label]="'Complete ' + t.title"
-                    (change)="state.toggleDone(t.id)"
-                  />
-                  <span class="text-sm truncate" [class.line-through]="t.done">
-                    @if (t.top3) {
-                      <span class="text-warning">★ </span>
-                    }
-                    {{ t.title }}
-                  </span>
-                  <span class="text-xs opacity-65">{{ formatDur(t.durationMin) }}</span>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 min-w-0 flex-1">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm checkbox-success"
+                      [checked]="t.done"
+                      [attr.aria-label]="'Complete ' + t.title"
+                      (change)="state.toggleDone(t.id)"
+                    />
+                    <span class="text-sm break-words flex-1" [class.line-through]="t.done">
+                      @if (t.top3) {
+                        <span class="text-warning">★ </span>
+                      }
+                      {{ t.title }}
+                    </span>
+                  </div>
+
+                  <div class="flex items-center gap-1.5 flex-none">
+                    <span class="text-xs opacity-65">{{ formatDur(t.durationMin) }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      [attr.aria-label]="'Move ' + t.title"
+                      (click)="toggleMoving(t.id)"
+                    >
+                      Move
+                    </button>
+                  </div>
                 </div>
 
-                <label class="flex items-center gap-1 text-xs">
-                  <span class="opacity-70">Move</span>
-                  <input
-                    type="date"
-                    class="input input-bordered input-xs w-auto"
-                    [attr.aria-label]="'Move ' + t.title + ' to date'"
-                    [value]="t.date"
-                    (change)="onMoveTaskDate(t, $event)"
-                  />
-                </label>
+                @if (movingTaskId() === t.id) {
+                  <div class="flex items-center justify-end gap-2 pt-1 border-t border-base-300">
+                    <span class="text-xs opacity-70">Pick date:</span>
+                    <input
+                      type="date"
+                      class="input input-bordered input-xs w-auto"
+                      [attr.aria-label]="'Move ' + t.title + ' to date'"
+                      [value]="t.date ?? ''"
+                      (change)="onMoveTaskDate(t, $event)"
+                    />
+                  </div>
+                }
               </div>
             }
           </div>
@@ -223,6 +238,7 @@ export class MonthPageComponent {
   readonly goalDraft = signal('');
   readonly taskDraft = signal('');
   readonly selectedIso = signal(this.state.selectedDate());
+  readonly movingTaskId = signal<string | null>(null);
   readonly draggingId = signal<string | null>(null);
   readonly dragTarget = signal<string | null>(null);
 
@@ -240,7 +256,7 @@ export class MonthPageComponent {
     const byDate = this.state.tasksByDate();
     const days = this.state.days();
     return monthGridDates(ym).map(iso => {
-      const tasks = sortTasksForDay(byDate[iso] ?? []);
+      const tasks = sortTasksByPriority(byDate[iso] ?? []);
       const doneCount = tasks.filter(t => t.done).length;
       const hasTop3 = tasks.some(t => t.top3);
       const hasHabits = Object.values(days[iso]?.habits ?? {}).some(Boolean);
@@ -259,7 +275,7 @@ export class MonthPageComponent {
 
   readonly selectedHeading = computed(() => longDate(this.selectedIso()));
   readonly selectedTasks = computed(() =>
-    sortTasksForDay(this.state.tasksByDate()[this.selectedIso()] ?? []),
+    sortTasksByPriority(this.state.tasksByDate()[this.selectedIso()] ?? []),
   );
 
   formatDur(min: number): string {
@@ -283,6 +299,11 @@ export class MonthPageComponent {
 
   selectDay(iso: string): void {
     this.selectedIso.set(iso);
+    this.movingTaskId.set(null);
+  }
+
+  toggleMoving(taskId: string): void {
+    this.movingTaskId.update(cur => (cur === taskId ? null : taskId));
   }
 
   openDayInToday(): void {
@@ -308,7 +329,10 @@ export class MonthPageComponent {
 
   onMoveTaskDate(task: TaskItem, event: Event): void {
     const val = (event.target as HTMLInputElement).value;
-    if (val) void this.state.moveTask(task.id, val);
+    if (val) {
+      void this.state.moveTask(task.id, val);
+      this.movingTaskId.set(null);
+    }
   }
 
   onDragStart(event: DragEvent, task: TaskItem): void {

@@ -20,7 +20,7 @@ export function foldIcsLine(line: string): string {
   const parts: string[] = [];
   let current = '';
   let currentBytes = 0;
-  let limit = 75;
+  const limit = 75;
 
   for (const ch of line) {
     const chBytes = encoder.encode(ch).length;
@@ -28,7 +28,6 @@ export function foldIcsLine(line: string): string {
       parts.push(current);
       current = ` ${ch}`;
       currentBytes = 1 + chBytes;
-      limit = 75;
     } else {
       current += ch;
       currentBytes += chBytes;
@@ -65,8 +64,11 @@ export function makeReminderIcs(
 
 export function makeScheduleIcs(tasks: readonly TaskItem[], todayIso: string): string {
   const upcoming = tasks
-    .filter(t => !t.done && t.date >= todayIso && t.startTime !== null && isTime(t.startTime))
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.startTime ?? '').localeCompare(b.startTime ?? ''));
+    .filter(
+      (t): t is TaskItem & { date: string; startTime: string } =>
+        !t.done && t.date !== null && t.date >= todayIso && t.startTime !== null && isTime(t.startTime),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
 
   const lines: string[] = [
     'BEGIN:VCALENDAR',
@@ -77,7 +79,7 @@ export function makeScheduleIcs(tasks: readonly TaskItem[], todayIso: string): s
 
   for (const t of upcoming) {
     const dtDate = t.date.replaceAll('-', '');
-    const [hh, mm] = (t.startTime as string).split(':');
+    const [hh, mm] = t.startTime.split(':');
     const summary = escapeIcsText(t.top3 ? `★ ${t.title}` : t.title);
     const descParts: string[] = [];
     if (t.notes.trim()) descParts.push(t.notes.trim());

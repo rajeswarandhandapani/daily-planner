@@ -4,6 +4,9 @@
 :root {
   --dp-cat-work: var(--color-info);
   --dp-cat-personal: #8b5cf6;
+  --dp-cat-household: #ea580c;
+  --dp-cat-family: #ec4899;
+  --dp-cat-children: #06b6d4;
   --dp-cat-health: var(--color-success);
   --dp-cat-finance: #d97706;
   --dp-cat-errands: #0d9488;
@@ -34,9 +37,18 @@ body:has(dp-month-page) .app-header-inner {
   max-width: 1080px;
 }
 
+.app-nav {
+  padding: 2px;
+}
+
+.app-nav button:focus:not(:focus-visible) {
+  outline: none;
+}
+
 @media (max-width: 440px) {
   .app-nav {
     gap: 2px;
+    padding: 2px 3px;
   }
   .app-nav button {
     padding-inline: 6px;
@@ -49,7 +61,7 @@ body:has(dp-month-page) .app-header-inner {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
-  max-width: 400px;
+  max-width: 420px;
   width: 100%;
   margin: 0 auto;
   padding: 4px 0;
@@ -57,7 +69,7 @@ body:has(dp-month-page) .app-header-inner {
 
 .strip .cell {
   aspect-ratio: auto;
-  height: 44px;
+  height: 48px;
 }
 
 .cell[data-s="done"] {
@@ -184,7 +196,7 @@ body:has(dp-month-page) .app-header-inner {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 920px) {
@@ -245,12 +257,12 @@ body:has(dp-month-page) .app-header-inner {
 
 .month-cell.is-today {
   border-color: var(--color-primary);
-  box-shadow: inset 0 0 0 1px var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
 }
 
 .month-cell.selected {
   outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
+  outline-offset: 0;
 }
 
 .month-pill {
