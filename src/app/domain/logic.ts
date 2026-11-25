@@ -175,17 +175,20 @@ export function groupTasksByCategory(tasks: readonly TaskItem[]): CategoryGroup[
 }
 
 /**
- * Returns tasks visible on a date in Today view:
- * - On `todayIso`: dated tasks for `todayIso` + undated (`date === null`) tasks.
- * - On any other date: only tasks dated to `selectedIso`.
+ * Returns tasks scheduled for `selectedIso`.
+ * Undated tasks live in the Unfinished Bucket until pulled into a daily plan.
  */
 export function tasksForDayView(
   allTasks: readonly TaskItem[],
   selectedIso: string,
-  todayIso: string,
+  _todayIso?: string,
 ): TaskItem[] {
-  const includeUndated = selectedIso === todayIso;
-  return allTasks.filter(t => t.date === selectedIso || (includeUndated && t.date === null));
+  return allTasks.filter(t => t.date === selectedIso);
+}
+
+/** Returns incomplete undated tasks in the Unfinished Bucket, sorted by priority. */
+export function bucketTasks(allTasks: readonly TaskItem[]): TaskItem[] {
+  return sortTasksByPriority(allTasks.filter(t => t.date === null && !t.done));
 }
 
 export interface TimelineRange {
@@ -609,7 +612,8 @@ export interface ReminderSummary {
 }
 
 export function reminderSummary(tasks: readonly TaskItem[], todayIso: string): ReminderSummary {
-  const todays = sortTasksByPriority(tasksForDayView(tasks, todayIso, todayIso));
+  const todays = sortTasksByPriority(tasksForDayView(tasks, todayIso));
+  const bucketCount = bucketTasks(tasks).length;
   const top3 = todays.filter(t => t.top3);
   const allTop3Done = top3.length > 0 && top3.every(t => t.done);
   const remaining = todays.filter(t => !t.done);
@@ -617,7 +621,10 @@ export function reminderSummary(tasks: readonly TaskItem[], todayIso: string): R
   if (todays.length === 0) {
     return {
       title: 'Plan your day',
-      body: 'Pick your Top 3 priorities and organize today.',
+      body:
+        bucketCount > 0
+          ? `${bucketCount} ${bucketCount === 1 ? 'task' : 'tasks'} waiting in your Unfinished Bucket.`
+          : 'Pick your Top 3 priorities and organize today.',
       allTop3Done: false,
     };
   }

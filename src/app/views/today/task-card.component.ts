@@ -60,6 +60,21 @@ import { PlannerStateService } from '../../services/planner-state.service';
                 {{ task().top3 ? '★' : '☆' }}
               </button>
               @if (!task().done) {
+                @if (task().date !== null) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs px-1.5 gap-1"
+                    [attr.aria-label]="'Return ' + task().title + ' to bucket'"
+                    title="Return to Unfinished Bucket"
+                    (click)="state.returnToBucket(task().id)"
+                  >
+                    <svg class="w-3 h-3 fill-none stroke-current" viewBox="0 0 16 16" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M5 4L2 7l3 3" />
+                      <path d="M2 7h8a4 4 0 0 1 0 8H7" />
+                    </svg>
+                    Bucket
+                  </button>
+                }
                 <button
                   type="button"
                   class="btn btn-outline btn-xs gap-1"
@@ -289,8 +304,8 @@ import { PlannerStateService } from '../../services/planner-state.service';
                 Next Mon
               </button>
               @if (task().date !== null) {
-                <button type="button" class="btn btn-outline btn-xs" (click)="moveTo(null)">
-                  Undated
+                <button type="button" class="btn btn-outline btn-xs" (click)="returnToBucket()">
+                  Bucket
                 </button>
               }
             </div>
@@ -395,6 +410,11 @@ export class TaskCardComponent {
 
   moveTo(targetIso: string | null): void {
     void this.state.moveTask(this.task().id, targetIso);
+    this.editing.set(false);
+  }
+
+  returnToBucket(): void {
+    void this.state.returnToBucket(this.task().id);
     this.editing.set(false);
   }
 }

@@ -95,13 +95,13 @@ const SHORT_DAY = new Intl.DateTimeFormat('en-US', { weekday: 'short' });
       </div>
     </section>
 
-    <!-- Undated tasks tray (only visible when undated tasks exist) -->
+    <!-- Unfinished bucket tray (only visible when bucket tasks exist) -->
     @if (undatedList().length > 0) {
       <section class="card bg-base-100 border border-base-300 shadow-xs" data-testid="week-undated">
         <div class="card-body p-3 gap-2">
           <div class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-bold m-0">Undated tasks ({{ undatedList().length }})</h2>
-            <span class="text-xs opacity-65">Drag onto a day or pick a date to schedule</span>
+            <h2 class="text-sm font-bold m-0">Unfinished bucket ({{ undatedList().length }})</h2>
+            <span class="text-xs opacity-65">Drag onto a day or pick a date to pull into plan</span>
           </div>
           <div class="flex flex-wrap gap-2">
             @for (t of undatedList(); track t.id) {

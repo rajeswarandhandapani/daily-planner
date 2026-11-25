@@ -22,7 +22,7 @@ import {
   timelineRange,
   weekDates,
 } from '../../domain/logic';
-import type { TaskItem } from '../../domain/models';
+import { CATEGORIES, type CategoryId, type TaskItem } from '../../domain/models';
 import { PlannerStateService } from '../../services/planner-state.service';
 import { HabitStripComponent } from './habit-strip.component';
 import { QuickAddComponent } from './quick-add.component';
@@ -118,7 +118,7 @@ import { TaskCardComponent } from './task-card.component';
 
     <!-- Schedule header & Grouped / Timeline toggle -->
     <div class="flex items-center justify-between gap-2">
-      <h2 class="text-base font-bold m-0">Tasks</h2>
+      <h2 class="text-base font-bold m-0">Daily plan</h2>
       <div class="seg" role="group" aria-label="Schedule view">
         <button
           type="button"
@@ -140,7 +140,11 @@ import { TaskCardComponent } from './task-card.component';
     @if (visibleTasks().length === 0) {
       <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="card-body p-5 text-center text-sm opacity-75">
-          No tasks here yet. Add one above — leave Date blank for anytime tasks, or set a date.
+          @if (state.bucket().length > 0) {
+            No tasks scheduled for {{ pullTargetLabel() }} yet. Tap <b>+ Pull</b> on any item in your Unfinished bucket below, or add a dated task.
+          } @else {
+            No tasks planned for {{ pullTargetLabel() }} yet. Add a task above (leave Date blank for your Unfinished bucket, or set a date).
+          }
         </div>
       </div>
     } @else if (state.todayMode() === 'grouped') {
@@ -196,6 +200,112 @@ import { TaskCardComponent } from './task-card.component';
       }
     }
 
+    <!-- Unfinished Bucket (pull into daily plan) -->
+    @if (state.bucket().length > 0) {
+      <section class="card bg-base-100 border border-base-300 shadow-xs" data-testid="bucket-panel">
+        <div class="card-body p-3 gap-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              class="flex items-center gap-2 text-left bg-transparent border-0 p-0 cursor-pointer font-bold text-sm"
+              [attr.aria-expanded]="'' + isBucketExpanded()"
+              (click)="toggleBucket()"
+            >
+              <span>{{ isBucketExpanded() ? '▾' : '▸' }} Unfinished bucket</span>
+              <span class="badge badge-sm badge-ghost">{{ state.bucket().length }}</span>
+            </button>
+            <span class="text-xs opacity-65">Pull tasks into {{ pullTargetLabel() }}</span>
+          </div>
+
+          @if (isBucketExpanded()) {
+            @if (bucketCategories().length > 1) {
+              <div class="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  class="btn btn-xs btn-outline chip-btn"
+                  [attr.aria-pressed]="'' + (bucketFilter() === 'all')"
+                  (click)="bucketFilter.set('all')"
+                >
+                  All
+                </button>
+                @for (cat of bucketCategories(); track cat.id) {
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-outline chip-btn gap-1"
+                    [attr.aria-pressed]="'' + (bucketFilter() === cat.id)"
+                    (click)="bucketFilter.set(cat.id)"
+                  >
+                    <i class="cat-dot" [style.background]="'var(' + cat.colorVar + ')'"></i>
+                    {{ cat.label }}
+                  </button>
+                }
+              </div>
+            }
+
+            <div class="flex flex-col gap-2">
+              @for (t of filteredBucket(); track t.id) {
+                <div
+                  class="p-2.5 rounded-lg cat-tint flex items-center justify-between gap-2"
+                  [attr.data-bucket-task]="t.id"
+                  [attr.data-cat]="t.category"
+                >
+                  <div class="flex items-start gap-2 min-w-0 flex-1">
+                    <button
+                      type="button"
+                      class="tick w-7 h-7 text-xs"
+                      aria-pressed="false"
+                      [attr.aria-label]="'Complete ' + t.title"
+                      (click)="state.toggleDone(t.id)"
+                    ></button>
+                    <div class="min-w-0 flex-1">
+                      <div class="text-sm font-semibold leading-snug break-words">{{ t.title }}</div>
+                      <div class="flex flex-wrap items-center gap-1.5 mt-0.5 text-xs opacity-80">
+                        <span>{{ catLabel(t.category) }}</span>
+                        @if (t.top3) {
+                          <span class="badge badge-warning badge-xs">Top 3</span>
+                        }
+                        @if (t.priority === 'high') {
+                          <span class="badge badge-error badge-outline badge-xs">High</span>
+                        }
+                        <span class="badge badge-ghost badge-xs">{{ formatDur(t.durationMin) }}</span>
+                        @if (t.subtasks.length > 0) {
+                          <span>{{ doneSubCount(t) }}/{{ t.subtasks.length }} steps</span>
+                        }
+                        @if (focusedOf(t.id) > 0) {
+                          <span class="badge badge-primary badge-outline badge-xs" data-testid="bucket-focused-badge">
+                            {{ focusedOf(t.id) }}m focused
+                          </span>
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-1 flex-none">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-xs min-h-8"
+                      [attr.aria-label]="'Pull ' + t.title + ' into plan'"
+                      (click)="state.pullToDate(t.id, state.selectedDate())"
+                    >
+                      + Pull
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs opacity-65 px-1.5"
+                      [attr.aria-label]="'Delete ' + t.title"
+                      (click)="state.deleteTask(t.id)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    }
+
     <!-- Daily Habits -->
     <dp-habit-strip [date]="state.selectedDate()" />
 
@@ -227,6 +337,9 @@ export class TodayPageComponent {
 
   readonly noteDraft = signal('');
   readonly noteStatus = signal('');
+  readonly bucketOpenOverride = signal<boolean | null>(null);
+  readonly bucketFilter = signal<CategoryId | 'all'>('all');
+
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
   private noteDate = '';
 
@@ -234,6 +347,12 @@ export class TodayPageComponent {
     const iso = this.state.selectedDate();
     return iso === this.state.today() ? `Today, ${shortDate(iso)}` : longDate(iso);
   });
+
+  readonly pullTargetLabel = computed(() =>
+    this.state.selectedDate() === this.state.today()
+      ? 'Today'
+      : shortDate(this.state.selectedDate()),
+  );
 
   readonly stripDays = computed(() => {
     const monday = mondayOf(this.state.selectedDate());
@@ -248,10 +367,27 @@ export class TodayPageComponent {
   });
 
   readonly visibleTasks = computed(() =>
-    sortTasksByPriority(
-      tasksForDayView(this.state.tasks(), this.state.selectedDate(), this.state.today()),
-    ),
+    sortTasksByPriority(tasksForDayView(this.state.tasks(), this.state.selectedDate())),
   );
+
+  readonly isBucketExpanded = computed(() => {
+    const ov = this.bucketOpenOverride();
+    if (ov !== null) return ov;
+    return this.visibleTasks().length === 0 && this.state.bucket().length > 0;
+  });
+
+  readonly bucketCategories = computed(() => {
+    const present = new Set(this.state.bucket().map(t => t.category));
+    return CATEGORIES.filter(c => present.has(c.id));
+  });
+
+  readonly filteredBucket = computed(() => {
+    const f = this.bucketFilter();
+    const all = this.state.bucket();
+    if (f === 'all') return all;
+    const matched = all.filter(t => t.category === f);
+    return matched.length > 0 ? matched : all;
+  });
 
   readonly categoryGroups = computed(() => groupTasksByCategory(this.visibleTasks()));
   readonly conflicts = computed(() => detectConflicts(this.visibleTasks()));
@@ -318,6 +454,22 @@ export class TodayPageComponent {
 
   formatDur(min: number): string {
     return formatDuration(min);
+  }
+
+  catLabel(id: CategoryId): string {
+    return CATEGORIES.find(c => c.id === id)?.label ?? 'Work';
+  }
+
+  doneSubCount(t: TaskItem): number {
+    return t.subtasks.filter(s => s.done).length;
+  }
+
+  focusedOf(taskId: string): number {
+    return this.state.focusMinutesByTask()[taskId] ?? 0;
+  }
+
+  toggleBucket(): void {
+    this.bucketOpenOverride.set(!this.isBucketExpanded());
   }
 
   shiftDay(delta: number): void {

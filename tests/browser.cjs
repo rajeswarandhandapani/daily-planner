@@ -50,7 +50,7 @@ async function noOverflow(page, label) {
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
   await noOverflow(page, 'Today empty (390px)');
 
-  // 2. Quick-add: undated by default, dated via Today/Time, and expanded categories (Household, Family, Children)
+  // 2. Quick-add: undated tasks go to Unfinished Bucket; dated tasks go to Today's Daily plan
   const titleInput = page.getByRole('textbox', { name: 'New task title' });
   const dateInput = page.getByLabel('Task date');
   const timeInput = page.getByLabel('Task start time');
@@ -60,27 +60,36 @@ async function noOverflow(page, label) {
   const top3Btn = page.getByRole('button', { name: 'Pin as Top 3' });
   const addBtn = page.locator('dp-quick-add button[type="submit"]');
 
-  // Task 1: Undated Household task (no date, no time -> stays undated with Anytime badge)
+  // Task 1: Undated Household task -> lands in Unfinished Bucket (NOT in Today's Daily plan)
   assert.equal(await dateInput.inputValue(), '', 'Date starts blank by default');
   await titleInput.fill('Fix kitchen hinge');
   await catSelect.selectOption('household');
   await addBtn.click();
-  await page.locator('[data-category="household"]').getByText('Fix kitchen hinge').waitFor();
-  await page.locator('[data-category="household"] [data-testid="undated-badge"]').waitFor();
+  await page.locator('[data-testid="bucket-panel"]').getByText('Fix kitchen hinge').waitFor();
+  assert.equal(await page.locator('[data-category="household"]').count(), 0, 'bucket item stays out of Daily plan until pulled');
 
-  // Task 2: Undated Family task with High priority (should appear before Normal inside Family)
+  // Task 2: Undated Family tasks (Normal + High -> High sorted first in bucket)
   await titleInput.fill('Plan weekend dinner');
   await catSelect.selectOption('family');
   await addBtn.click();
-  await page.locator('[data-category="family"]').getByText('Plan weekend dinner').waitFor();
+  await page.locator('[data-testid="bucket-panel"]').getByText('Plan weekend dinner').waitFor();
 
   await titleInput.fill('Book family flight');
   await catSelect.selectOption('family');
   await highBtn.click();
   await addBtn.click();
+  await page.locator('[data-testid="bucket-panel"]').getByText('Book family flight').waitFor();
+
+  // Pull "Fix kitchen hinge" from Unfinished Bucket into Today's plan
+  await page.getByRole('button', { name: 'Pull Fix kitchen hinge into plan' }).click();
+  await page.locator('[data-category="household"]').getByText('Fix kitchen hinge').waitFor();
+
+  // Pull both Family tasks into Today's plan and verify High sorts before Normal inside Family
+  await page.locator('[data-testid="bucket-panel"] button[aria-expanded]').click();
+  await page.getByRole('button', { name: 'Pull Plan weekend dinner into plan' }).click();
+  await page.getByRole('button', { name: 'Pull Book family flight into plan' }).click();
   await page.locator('[data-category="family"]').getByText('Book family flight').waitFor();
 
-  // Verify priority ordering inside Family: High before Normal
   const familyTitles = await page
     .locator('[data-category="family"] dp-task-card article button[aria-label^="Edit "]')
     .allTextContents();
@@ -92,10 +101,8 @@ async function noOverflow(page, label) {
   // Task 3: Children dated task (Today + Top 3)
   await titleInput.fill('Pack school snacks');
   await catSelect.selectOption('children');
-  const todayPill = page.getByRole('button', { name: 'Set date to selected day' });
-  await todayPill.click();
+  await page.getByRole('button', { name: 'Set date to selected day' }).click();
   await page.waitForFunction(() => document.querySelector('input[aria-label="Task date"]')?.value === '2026-11-25');
-  assert.equal(await dateInput.inputValue(), '2026-11-25');
   await top3Btn.click();
   await addBtn.click();
   await page.locator('[data-category="children"]').getByText('Pack school snacks').waitFor();
@@ -109,8 +116,6 @@ async function noOverflow(page, label) {
   await top3Btn.click();
   await addBtn.click();
   await page.locator('[data-category="work"]').getByText('Ship Q4; budget, plan').waitFor();
-
-  // Verify no duplicate cards for Top 3 task
   assert.equal(await page.locator('dp-task-card', { hasText: 'Ship Q4; budget, plan' }).count(), 1);
 
   // Task 5: Work overlapping timed Top 3 (09:30 30m)
@@ -132,7 +137,7 @@ async function noOverflow(page, label) {
   await addBtn.click();
   await page.getByText('Fourth priority').waitFor();
 
-  // 3. Inline edit + subtasks
+  // 3. Multi-day task progress: edit + subtasks + Focus 7m -> Return to Bucket -> verify progress preserved
   await page.getByRole('button', { name: 'Edit Fix kitchen hinge' }).click();
   await page.locator('[data-testid="task-editor"]').waitFor();
   await page.getByRole('textbox', { name: 'Edit task title' }).fill('Fix kitchen cabinet');
@@ -143,10 +148,29 @@ async function noOverflow(page, label) {
   await page.getByText('Fix kitchen cabinet').waitFor();
   await page.getByText('1/1 steps').waitFor();
 
-  // Verify undated task does NOT appear on Tomorrow
+  // Focus 7m on multi-day task, then return it to the Unfinished Bucket
+  await page.getByRole('button', { name: 'Focus on Fix kitchen cabinet' }).click();
+  await page.locator('#focus').waitFor({ state: 'visible' });
+  await page.clock.fastForward(7 * 60 * 1000 + 5000);
+  await page.locator('#focus button', { hasText: 'Stop' }).click();
+  await page.locator('#focus').waitFor({ state: 'hidden' });
+  await page.locator('[data-testid="focused-badge"]', { hasText: '7m focused' }).waitFor();
+
+  await page.getByRole('button', { name: 'Return Fix kitchen cabinet to bucket' }).click();
+  await page.locator('[data-category="household"]').waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('[data-category="household"]').count(), 0, 'returned task leaves Daily plan');
+  const bucketToggle = page.locator('[data-testid="bucket-panel"] button[aria-expanded]');
+  if ((await bucketToggle.getAttribute('aria-expanded')) !== 'true') {
+    await bucketToggle.click();
+  }
+  await page.locator('[data-testid="bucket-panel"]').getByText('Fix kitchen cabinet').waitFor();
+  await page.locator('[data-testid="bucket-panel"]').getByText('1/1 steps').waitFor();
+  await page.locator('[data-testid="bucket-panel"] [data-testid="bucket-focused-badge"]', { hasText: '7m focused' }).waitFor();
+
+  // Verify bucket task does NOT appear on Tomorrow
   await page.getByRole('button', { name: 'Next day' }).click();
   await page.getByRole('heading', { name: 'Thursday, November 26' }).waitFor();
-  assert.equal(await page.getByText('Fix kitchen cabinet').count(), 0, 'undated task stays off tomorrow');
+  assert.equal(await page.locator('dp-task-card', { hasText: 'Fix kitchen cabinet' }).count(), 0);
   await page.getByRole('button', { name: 'Back to today →' }).click();
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
 
@@ -157,7 +181,7 @@ async function noOverflow(page, label) {
   await page.getByRole('button', { name: 'By Category' }).click();
   await page.locator('[data-testid="timeline-view"]').waitFor({ state: 'hidden' });
 
-  // 5. Focus timer: #focus visible, kit #timer-bar stays hidden, logs completion + break offer, and logs partial stop.
+  // 5. Focus timer completion + break toast
   await page.getByRole('button', { name: 'Focus on Design sync' }).click();
   await page.locator('#focus').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#timer-bar').isVisible(), false, 'kit timer bar must stay hidden');
@@ -167,15 +191,7 @@ async function noOverflow(page, label) {
   assert.ok(await page.locator('#toast button', { hasText: 'Start 5m break' }).isVisible());
   await page.locator('[data-testid="focused-badge"]', { hasText: '25m focused' }).waitFor();
 
-  // Focus on undated task + manual stop after 7 minutes logs 7m to Today
-  await page.getByRole('button', { name: 'Focus on Fix kitchen cabinet' }).click();
-  await page.locator('#focus').waitFor({ state: 'visible' });
-  await page.clock.fastForward(7 * 60 * 1000 + 5000);
-  await page.locator('#focus button', { hasText: 'Stop' }).click();
-  await page.locator('#focus').waitFor({ state: 'hidden' });
-  await page.locator('[data-testid="focused-badge"]', { hasText: '7m focused' }).waitFor();
-
-  // 6. Automatic daily carry-forward: create a pending task on Yesterday (Nov 24), reload, assert auto-carried to Today with ↻ 1
+  // 6. Automatic daily carry-forward: create pending task on Yesterday, reload, assert auto-carried to Today with ↻ 1
   await page.getByRole('button', { name: 'Previous day' }).click();
   await page.getByRole('heading', { name: 'Tuesday, November 24' }).waitFor();
   await titleInput.fill('Pay electric bill');
@@ -210,7 +226,7 @@ async function noOverflow(page, label) {
   assert.equal(await page.evaluate(() => window.__xss), undefined);
   await page.locator('[data-testid="focused-badge"]', { hasText: '25m focused' }).waitFor();
 
-  // 8. Week view: undated tray, add goal, move task with arrow button, check overflow
+  // 8. Week view: Unfinished bucket tray, add goal, move task with arrow button, check overflow
   await nav(page, 'Week');
   await page.locator('[data-testid="week-goals"]').waitFor();
   await page.locator('[data-testid="week-undated"]').getByText('Fix kitchen cabinet').waitFor();
@@ -287,7 +303,7 @@ async function noOverflow(page, label) {
 
   await page.getByRole('button', { name: 'Erase all data' }).click();
   await page.locator('dialog').getByRole('button', { name: 'Erase' }).click();
-  await page.getByText('No tasks here yet.').waitFor();
+  await page.getByText('No tasks planned for Today yet.').waitFor();
 
   await nav(page, 'Data');
   await page.locator('input[type=file]').setInputFiles({
@@ -321,7 +337,11 @@ async function noOverflow(page, label) {
   await page.getByRole('heading', { name: 'Today, Nov 25' }).waitFor();
   await context.setOffline(false);
 
-  // 14. Dark mode screenshot & manifest icon check
+  // 14. Dark mode screenshot (expand bucket so both bucket and daily plan appear)
+  const finalBucketToggle = page.locator('[data-testid="bucket-panel"] button[aria-expanded]');
+  if ((await finalBucketToggle.getAttribute('aria-expanded')) !== 'true') {
+    await finalBucketToggle.click();
+  }
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: path.join(OUT, 'today-dark.png'), fullPage: true });
   const manifest = JSON.parse(fs.readFileSync(path.join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'));

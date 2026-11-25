@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addDays,
+  bucketTasks,
   carryForwardPending,
   cleanSettings,
   dayLoad,
@@ -98,26 +99,33 @@ test('tasks group by category and sort by priority (Top 3 -> High -> Normal -> D
   assert.equal(sortTasksByPriority(items)[0].id, 'w-top');
 });
 
-test('undated tasks appear on Today view only and are never treated as overdue', () => {
+test('unfinished bucket holds incomplete undated tasks sorted by priority while day view shows scheduled tasks', () => {
   const items = [
-    task({ id: 'undated', date: null, category: 'family' }),
+    task({ id: 'u-normal', date: null, category: 'family', priority: 'normal', subtasks: [{ id: 's1', title: 'Step 1', done: true }] }),
+    task({ id: 'u-high', date: null, category: 'household', priority: 'high' }),
+    task({ id: 'u-done', date: null, done: true }),
     task({ id: 'today', date: '2026-11-25' }),
     task({ id: 'tomorrow', date: '2026-11-26' }),
     task({ id: 'yesterday', date: '2026-11-24' }),
   ];
 
   assert.deepEqual(
-    tasksForDayView(items, '2026-11-25', '2026-11-25').map(t => t.id),
-    ['undated', 'today'],
+    bucketTasks(items).map(t => t.id),
+    ['u-high', 'u-normal'],
   );
   assert.deepEqual(
-    tasksForDayView(items, '2026-11-26', '2026-11-25').map(t => t.id),
+    tasksForDayView(items, '2026-11-25').map(t => t.id),
+    ['today'],
+  );
+  assert.deepEqual(
+    tasksForDayView(items, '2026-11-26').map(t => t.id),
     ['tomorrow'],
   );
   assert.deepEqual(
     overdueTasks(items, '2026-11-25').map(t => t.id),
     ['yesterday'],
   );
+  assert.equal(reminderSummary(items.filter(t => t.date !== '2026-11-25'), '2026-11-25').body, '2 tasks waiting in your Unfinished Bucket.');
 });
 
 test('automatic daily carry-forward moves pending dated tasks from earlier days to today and enforces Top 3 cap', () => {

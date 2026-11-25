@@ -1,6 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { ToastService } from '../kit/toast.service';
 import {
+  bucketTasks,
   carryForwardPending,
   cleanSettings,
   focusByTask,
@@ -85,11 +86,12 @@ export class PlannerStateService {
   });
 
   readonly undatedTasks = computed(() => this.tasks().filter(t => t.date === null));
+  readonly bucket = computed(() => bucketTasks(this.tasks()));
   readonly overdue = computed(() => overdueTasks(this.tasks(), this.today()));
   readonly focusMinutesByTask = computed(() => focusByTask(this.days()));
   readonly activeHabits = computed(() => this.settings().habits.filter(h => !h.archived));
   readonly pendingTodayCount = computed(
-    () => tasksForDayView(this.tasks(), this.today(), this.today()).filter(t => !t.done).length,
+    () => tasksForDayView(this.tasks(), this.today()).filter(t => !t.done).length,
   );
 
   private initialized = false;
@@ -232,6 +234,13 @@ export class PlannerStateService {
 
     this.tasks.update(list => [...list, created]);
     await this.store.putTask(created);
+    if (created.date === null) {
+      const target = this.selectedDate();
+      this.toast.show('Added to Unfinished Bucket.', {
+        label: target === this.today() ? 'Pull to today' : 'Pull to day',
+        run: () => void this.pullToDate(created.id, target),
+      });
+    }
     return created;
   }
 
@@ -330,9 +339,64 @@ export class PlannerStateService {
     const msg = demoted
       ? `Moved “${current.title}” (Top 3 cleared — target already has ${MAX_TOP3}).`
       : targetDate === null
-        ? `Cleared date on “${current.title}”.`
+        ? `Returned “${current.title}” to Unfinished Bucket.`
         : `Moved “${current.title}”.`;
     this.toast.show(msg, {
+      label: 'Undo',
+      run: () => {
+        this.tasks.update(list => list.map(t => (t.id === id ? prev : t)));
+        void this.store.putTask(prev);
+      },
+    });
+  }
+
+  async pullToDate(id: string, targetDate: string): Promise<void> {
+    const current = this.tasks().find(t => t.id === id);
+    if (!current || current.date === targetDate) return;
+    const prev = { ...current, subtasks: current.subtasks.map(s => ({ ...s })) };
+
+    let nextTop3 = current.top3;
+    let demoted = false;
+    if (nextTop3 && top3CountOnScope(this.tasks(), targetDate, id) >= MAX_TOP3) {
+      nextTop3 = false;
+      demoted = true;
+    }
+
+    const updated: TaskItem = {
+      ...current,
+      date: targetDate,
+      top3: nextTop3,
+    };
+
+    this.tasks.update(list => list.map(t => (t.id === id ? updated : t)));
+    await this.store.putTask(updated);
+
+    const destLabel = targetDate === this.today() ? 'Today' : targetDate;
+    const msg = demoted
+      ? `Pulled “${current.title}” to ${destLabel} (Top 3 cleared — max ${MAX_TOP3}).`
+      : `Pulled “${current.title}” to ${destLabel}.`;
+    this.toast.show(msg, {
+      label: 'Undo',
+      run: () => {
+        this.tasks.update(list => list.map(t => (t.id === id ? prev : t)));
+        void this.store.putTask(prev);
+      },
+    });
+  }
+
+  async returnToBucket(id: string): Promise<void> {
+    const current = this.tasks().find(t => t.id === id);
+    if (!current || current.date === null) return;
+    const prev = { ...current, subtasks: current.subtasks.map(s => ({ ...s })) };
+    const updated: TaskItem = {
+      ...current,
+      date: null,
+      startTime: null,
+    };
+    this.tasks.update(list => list.map(t => (t.id === id ? updated : t)));
+    await this.store.putTask(updated);
+
+    this.toast.show(`Returned “${current.title}” to Unfinished Bucket.`, {
       label: 'Undo',
       run: () => {
         this.tasks.update(list => list.map(t => (t.id === id ? prev : t)));
