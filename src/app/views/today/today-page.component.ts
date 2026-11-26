@@ -388,7 +388,7 @@ export class TodayPageComponent {
 
   readonly noteDraft = signal('');
   readonly noteStatus = signal('');
-  readonly bucketOpenOverride = signal<boolean | null>(null);
+  readonly isBucketExpanded = signal(true);
   readonly bucketFilter = signal<CategoryId | 'all'>('all');
   readonly selectedBucketIds = signal<Set<string>>(new Set());
 
@@ -428,12 +428,6 @@ export class TodayPageComponent {
       if (!t.done && t.sourceTaskId) ids.add(t.sourceTaskId);
     }
     return ids;
-  });
-
-  readonly isBucketExpanded = computed(() => {
-    const ov = this.bucketOpenOverride();
-    if (ov !== null) return ov;
-    return this.visibleTasks().length === 0 && this.state.bucket().length > 0;
   });
 
   readonly bucketCategories = computed(() => {
@@ -548,7 +542,7 @@ export class TodayPageComponent {
   }
 
   toggleBucket(): void {
-    this.bucketOpenOverride.set(!this.isBucketExpanded());
+    this.isBucketExpanded.update(open => !open);
   }
 
   toggleBucketSelection(id: string): void {
